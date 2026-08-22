@@ -1,0 +1,43 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <!-- Warm dark palette.
+         Neutrals are pulled slightly toward brown rather than blue: a cool
+         grey UI makes warm paper and black ink look dirty, while a warm one
+         lets the page read as paper even at night. -->
+
+    <!-- Surfaces, from furthest back to closest. -->
+    <SolidColorBrush x:Key="CanvasBackdropBrush" Color="#171614" />
+    <SolidColorBrush x:Key="ChromeBrush"         Color="#1E1D1B" />
+    <SolidColorBrush x:Key="RailBrush"           Color="#1A1918" />
+    <SolidColorBrush x:Key="ElevatedBrush"       Color="#262523" />
+    <SolidColorBrush x:Key="HoverBrush"          Color="#2B2A27" />
+
+    <!-- Hairlines. Two weights: a barely-there divider and a real edge. -->
+    <SolidColorBrush x:Key="BorderBrush"         Color="#302E2B" />
+    <SolidColorBrush x:Key="SubtleBorderBrush"   Color="#252422" />
+
+    <!-- Type. -->
+    <SolidColorBrush x:Key="TextBrush"           Color="#EFEDE7" />
+    <SolidColorBrush x:Key="MutedTextBrush"      Color="#A09A90" />
+    <SolidColorBrush x:Key="FaintTextBrush"      Color="#6E6862" />
+
+    <!-- Accent: a warm terracotta rather than a saturated blue or purple. It
+         sits beside ink without competing with it. -->
+    <SolidColorBrush x:Key="AccentBrush"         Color="#E08A66" />
+    <SolidColorBrush x:Key="AccentSoftBrush"     Color="#3A2A22" />
+    <SolidColorBrush x:Key="AccentLineBrush"     Color="#7A4A34" />
+
+    <!-- The page. -->
+    <SolidColorBrush x:Key="PageSurfaceBrush"    Color="#22211F" />
+    <SolidColorBrush x:Key="PageBorderBrush"     Color="#2E2C29" />
+    <SolidColorBrush x:Key="PageLineBrush"       Color="#2E2C29" />
+
+    <Color x:Key="PageShadowColor">#000000</Color>
+    <sys:Double x:Key="PageShadowOpacity">0.5</sys:Double>
+
+    <!-- Window control glyphs need to read on the dark caption bar. -->
+    <SolidColorBrush x:Key="CloseHoverBrush"     Color="#C4443C" />
+
+</ResourceDictionary>

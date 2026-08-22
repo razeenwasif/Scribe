@@ -1,0 +1,87 @@
+<Window x:Class="Scribe.Views.ImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Import from OneNote"
+        Height="620" Width="660"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ChromeBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        ShowInTaskbar="False">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Import from OneNote"
+                   FontSize="19" FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextBrush}" />
+
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" Margin="0,6,0,14"
+                   Foreground="{DynamicResource MutedTextBrush}"
+                   Text="Scribe reads your notebooks through the OneNote desktop app. Handwriting comes across as real strokes with pressure preserved, not as pictures. Nothing in OneNote is changed or removed." />
+
+        <Border Grid.Row="2"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                CornerRadius="6" Padding="4">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Notebooks to import"
+                           Margin="8,6,8,4" FontWeight="SemiBold" FontSize="12"
+                           Foreground="{DynamicResource MutedTextBrush}" />
+
+                <TextBlock x:Name="NotebooksHint" DockPanel.Dock="Bottom"
+                           Margin="8,4,8,6" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{DynamicResource MutedTextBrush}"
+                           Text="Only notebooks currently open in OneNote appear here. Open a notebook in OneNote and press Refresh if one is missing." />
+
+                <ListBox x:Name="NotebookList" BorderThickness="0" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Name}"
+                                      IsChecked="{Binding Selected, Mode=TwoWay}"
+                                      Margin="4,3" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,10">
+            <Button Content="Refresh" Click="Refresh_Click" Padding="12,5"
+                    Style="{DynamicResource QuietButtonStyle}" />
+            <CheckBox x:Name="IncludeImages" Content="Include pictures"
+                      IsChecked="True" VerticalAlignment="Center" Margin="12,0,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="4"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                CornerRadius="6">
+            <ScrollViewer x:Name="LogScroller" VerticalScrollBarVisibility="Auto" Padding="10,8">
+                <TextBlock x:Name="Log" FontFamily="Consolas" FontSize="11.5"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource MutedTextBrush}"
+                           Text="Ready." />
+            </ScrollViewer>
+        </Border>
+
+        <DockPanel Grid.Row="5" Margin="0,14,0,0">
+            <ProgressBar x:Name="Spinner" Width="150" Height="4"
+                         IsIndeterminate="False" Visibility="Hidden"
+                         DockPanel.Dock="Left" VerticalAlignment="Center" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click"
+                        Padding="16,7" IsEnabled="False" Margin="0,0,8,0" />
+                <Button x:Name="CloseButton" Content="Close" Click="Close_Click"
+                        Padding="16,7" Margin="0,0,8,0" />
+                <Button x:Name="ImportButton" Content="Import" Click="Import_Click"
+                        Padding="22,7" IsDefault="True" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

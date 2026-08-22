@@ -1,0 +1,34 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <!-- Warm light palette: a paper cream rather than a clinical white, so the
+         page and the chrome belong to the same world. -->
+
+    <SolidColorBrush x:Key="CanvasBackdropBrush" Color="#EFEDE6" />
+    <SolidColorBrush x:Key="ChromeBrush"         Color="#FAF9F5" />
+    <SolidColorBrush x:Key="RailBrush"           Color="#F5F3ED" />
+    <SolidColorBrush x:Key="ElevatedBrush"       Color="#FFFFFF" />
+    <SolidColorBrush x:Key="HoverBrush"          Color="#EBE8E0" />
+
+    <SolidColorBrush x:Key="BorderBrush"         Color="#E0DCD2" />
+    <SolidColorBrush x:Key="SubtleBorderBrush"   Color="#EDEAE2" />
+
+    <SolidColorBrush x:Key="TextBrush"           Color="#22201D" />
+    <SolidColorBrush x:Key="MutedTextBrush"      Color="#6C665E" />
+    <SolidColorBrush x:Key="FaintTextBrush"      Color="#9A938A" />
+
+    <SolidColorBrush x:Key="AccentBrush"         Color="#B85C3B" />
+    <SolidColorBrush x:Key="AccentSoftBrush"     Color="#F6E8E1" />
+    <SolidColorBrush x:Key="AccentLineBrush"     Color="#E4C3B2" />
+
+    <SolidColorBrush x:Key="PageSurfaceBrush"    Color="#FFFFFF" />
+    <SolidColorBrush x:Key="PageBorderBrush"     Color="#E4E0D6" />
+    <SolidColorBrush x:Key="PageLineBrush"       Color="#E9E4D9" />
+
+    <Color x:Key="PageShadowColor">#4A4238</Color>
+    <sys:Double x:Key="PageShadowOpacity">0.16</sys:Double>
+
+    <SolidColorBrush x:Key="CloseHoverBrush"     Color="#C4443C" />
+
+</ResourceDictionary>

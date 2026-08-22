@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Required to build a Windows-targeting project from Linux/macOS. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <AssemblyName>Scribe</AssemblyName>
+    <RootNamespace>Scribe</RootNamespace>
+    <ApplicationIcon>Assets\scribe.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <Product>Scribe</Product>
+    <Company>Scribe</Company>
+    <Description>A local-first notebook for handwritten notes.</Description>
+
+    <!-- Single-file publish settings. IncludeNativeLibraries is what folds
+         PenImc/wpfgfx/D3DCompiler into the exe so it is genuinely standalone. -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+
+    <!-- COM late binding against OneNote needs the built-in COM interop stack. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+</Project>
