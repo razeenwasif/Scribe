@@ -13,6 +13,7 @@
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="DisplayFont">Georgia, Cambria, Segoe UI</FontFamily>
+    <FontFamily x:Key="HandwrittenFont">Segoe Print, Ink Free, Segoe Script, Comic Sans MS, cursive</FontFamily>
 
     <sys:Double x:Key="FontSizeSmall">11.5</sys:Double>
     <sys:Double x:Key="FontSizeBody">13</sys:Double>

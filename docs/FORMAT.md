@@ -131,12 +131,16 @@ is clamped, so hand-edited files will not crash the app.
   "fontSize": 15,
   "color": "#1A1A1A",
   "bold": false,
-  "italic": false
+  "italic": false,
+  "underline": false,
+  "strikethrough": false,
+  "heading": "body",
+  "xaml": "<FlowDocument ...>...</FlowDocument>"
 }
 ```
 
 `height: null` means size-to-content. Empty containers are dropped on save
-rather than persisted.
+rather than persisted. `xaml` stores optional rich flow document formatting.
 
 ### images
 
@@ -145,6 +149,37 @@ rather than persisted.
 ```
 
 `file` is relative to the **section** folder and always uses forward slashes.
+
+### latexBlocks
+
+```json
+{
+  "id": "…",
+  "x": 60, "y": 150,
+  "latex": "\\int_{0}^{\\infty} e^{-x^2} \\, dx = \\frac{\\sqrt{\\pi}}{2}",
+  "scale": 22,
+  "color": "#1A1A1A"
+}
+```
+
+Stores mathematical equations formatted in standard LaTeX syntax.
+
+### tables
+
+```json
+{
+  "id": "…",
+  "x": 60, "y": 300,
+  "hasHeader": true,
+  "rows": [
+    ["Item", "Quantity", "Price"],
+    ["Apples", "10", "$5.00"]
+  ],
+  "columnWidths": [120, 100, 120]
+}
+```
+
+Stores structured data tables with optional header row and custom column widths.
 
 ## Compatibility rules
 

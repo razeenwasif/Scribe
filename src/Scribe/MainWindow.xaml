@@ -33,6 +33,7 @@
         <KeyBinding Key="S" Modifiers="Control" Command="ApplicationCommands.Save" />
         <KeyBinding Key="N" Modifiers="Control" Command="ApplicationCommands.New" />
         <KeyBinding Key="F" Modifiers="Control" Command="ApplicationCommands.Find" />
+        <KeyBinding Key="V" Modifiers="Control" Command="ApplicationCommands.Paste" />
     </Window.InputBindings>
 
     <Window.CommandBindings>
@@ -41,6 +42,7 @@
         <CommandBinding Command="ApplicationCommands.Save" Executed="Save_Executed" />
         <CommandBinding Command="ApplicationCommands.New"  Executed="NewPage_Executed" />
         <CommandBinding Command="ApplicationCommands.Find" Executed="Find_Executed" />
+        <CommandBinding Command="ApplicationCommands.Paste" Executed="Paste_Executed" />
     </Window.CommandBindings>
 
     <!-- RootBorder carries the maximise inset; see MainWindow.xaml.cs. -->
@@ -180,7 +182,7 @@
                                     ValueChanged="WidthSlider_Changed" />
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                             <TextBlock Text="Paper" VerticalAlignment="Center" FontSize="11"
                                        Foreground="{DynamicResource FaintTextBrush}" Margin="0,0,9,0" />
                             <ComboBox x:Name="PaperCombo" Width="94" VerticalAlignment="Center"
@@ -191,6 +193,101 @@
                                 <ComboBoxItem Content="Blank" Tag="blank" />
                             </ComboBox>
                         </StackPanel>
+
+                        <!-- Insert group: Table, LaTeX, Image -->
+                        <Border Background="{DynamicResource RailBrush}" CornerRadius="10"
+                                Padding="3" Margin="0,0,10,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="TableButton" Click="InsertTable_Click"
+                                        Style="{DynamicResource IconButtonStyle}"
+                                        ToolTip="Insert Table">
+                                    <Path Data="{StaticResource IconTable}" Style="{DynamicResource IconPathStyle}" />
+                                </Button>
+                                <Button x:Name="LatexButton" Click="InsertLatex_Click"
+                                        Style="{DynamicResource IconButtonStyle}"
+                                        ToolTip="LaTeX Equation Formatter">
+                                    <Path Data="{StaticResource IconFormula}" Style="{DynamicResource IconPathStyle}" />
+                                </Button>
+                                <Button x:Name="ImageButton" Click="InsertImage_Click"
+                                        Style="{DynamicResource IconButtonStyle}"
+                                        ToolTip="Insert or Paste Image  (Ctrl+V)">
+                                    <Path Data="{StaticResource IconImage}" Style="{DynamicResource IconPathStyle}" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Text formatting group -->
+                        <Border Background="{DynamicResource RailBrush}" CornerRadius="10"
+                                Padding="4,3" Margin="0,0,10,0">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Heading / Style Selector -->
+                                <ComboBox x:Name="StyleCombo" Width="100" Margin="0,0,4,0"
+                                          VerticalAlignment="Center" SelectionChanged="StyleCombo_Changed">
+                                    <ComboBoxItem Content="Body" Tag="body" IsSelected="True" />
+                                    <ComboBoxItem Content="Title" Tag="title" />
+                                    <ComboBoxItem Content="Heading 1" Tag="h1" />
+                                    <ComboBoxItem Content="Heading 2" Tag="h2" />
+                                    <ComboBoxItem Content="Heading 3" Tag="h3" />
+                                    <ComboBoxItem Content="Handwritten" Tag="handwritten" />
+                                </ComboBox>
+
+                                <!-- Font Family Selector -->
+                                <ComboBox x:Name="FontFamilyCombo" Width="110" Margin="0,0,4,0"
+                                          VerticalAlignment="Center" SelectionChanged="FontFamilyCombo_Changed">
+                                    <ComboBoxItem Content="Segoe UI" Tag="Segoe UI" IsSelected="True" />
+                                    <ComboBoxItem Content="Handwritten" Tag="Handwritten" />
+                                    <ComboBoxItem Content="Georgia" Tag="Georgia" />
+                                    <ComboBoxItem Content="Cascadia" Tag="Cascadia Code" />
+                                    <ComboBoxItem Content="Arial" Tag="Arial" />
+                                    <ComboBoxItem Content="Times New Roman" Tag="Times New Roman" />
+                                    <ComboBoxItem Content="Comic Sans" Tag="Comic Sans MS" />
+                                </ComboBox>
+
+                                <!-- Font Size Selector -->
+                                <ComboBox x:Name="FontSizeCombo" Width="60" Margin="0,0,4,0"
+                                          VerticalAlignment="Center" SelectionChanged="FontSizeCombo_Changed">
+                                    <ComboBoxItem Content="11" Tag="11" />
+                                    <ComboBoxItem Content="12" Tag="12" />
+                                    <ComboBoxItem Content="13" Tag="13" />
+                                    <ComboBoxItem Content="14" Tag="14" IsSelected="True" />
+                                    <ComboBoxItem Content="15" Tag="15" />
+                                    <ComboBoxItem Content="16" Tag="16" />
+                                    <ComboBoxItem Content="18" Tag="18" />
+                                    <ComboBoxItem Content="20" Tag="20" />
+                                    <ComboBoxItem Content="24" Tag="24" />
+                                    <ComboBoxItem Content="28" Tag="28" />
+                                    <ComboBoxItem Content="32" Tag="32" />
+                                    <ComboBoxItem Content="40" Tag="40" />
+                                </ComboBox>
+
+                                <!-- Formatting Toggles -->
+                                <ToggleButton x:Name="BoldButton" Click="Bold_Click"
+                                              Style="{DynamicResource ToolButtonStyle}"
+                                              ToolTip="Bold  (Ctrl+B)">
+                                    <Path Data="{StaticResource IconBold}" Style="{DynamicResource IconPathStyle}" />
+                                </ToggleButton>
+                                <ToggleButton x:Name="ItalicButton" Click="Italic_Click"
+                                              Style="{DynamicResource ToolButtonStyle}"
+                                              ToolTip="Italic  (Ctrl+I)">
+                                    <Path Data="{StaticResource IconItalic}" Style="{DynamicResource IconPathStyle}" />
+                                </ToggleButton>
+                                <ToggleButton x:Name="UnderlineButton" Click="Underline_Click"
+                                              Style="{DynamicResource ToolButtonStyle}"
+                                              ToolTip="Underline  (Ctrl+U)">
+                                    <Path Data="{StaticResource IconUnderline}" Style="{DynamicResource IconPathStyle}" />
+                                </ToggleButton>
+                                <ToggleButton x:Name="StrikethroughButton" Click="Strikethrough_Click"
+                                              Style="{DynamicResource ToolButtonStyle}"
+                                              ToolTip="Strikethrough">
+                                    <Path Data="{StaticResource IconStrikethrough}" Style="{DynamicResource IconPathStyle}" />
+                                </ToggleButton>
+                                <ToggleButton x:Name="HandwrittenButton" Click="Handwritten_Click"
+                                              Style="{DynamicResource ToolButtonStyle}"
+                                              ToolTip="Handwritten font style">
+                                    <Path Data="{StaticResource IconHandwriting}" Style="{DynamicResource IconPathStyle}" />
+                                </ToggleButton>
+                            </StackPanel>
+                        </Border>
                     </WrapPanel>
                 </DockPanel>
             </Border>

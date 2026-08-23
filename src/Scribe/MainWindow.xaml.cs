@@ -68,6 +68,7 @@ public partial class MainWindow : Window
         Tree.ItemsSource = _notebooks;
         PageView.ContentChanged += (_, _) => OnContentChanged();
         PageView.Undo.Changed += (_, _) => UpdateHistoryButtons();
+        PageView.ActiveTextBoxSelectionChanged += (_, _) => UpdateFormattingToolbarState();
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -884,7 +885,7 @@ public partial class MainWindow : Window
     {
         // Single-letter tool switching must not fire while typing.
         if (Keyboard.Modifiers != ModifierKeys.None) return;
-        if (Keyboard.FocusedElement is TextBox) return;
+        if (Keyboard.FocusedElement is TextBox or RichTextBox) return;
 
         ToolKind? kind = e.Key switch
         {
@@ -901,6 +902,196 @@ public partial class MainWindow : Window
 
         SelectTool(kind.Value);
         e.Handled = true;
+    }
+
+    // ----------------------------------------------------------- formatting & inserts
+
+    private bool _suppressFormatSync;
+
+    private void UpdateFormattingToolbarState()
+    {
+        if (_suppressFormatSync) return;
+        _suppressFormatSync = true;
+        try
+        {
+            var active = PageView.ActiveTextBox;
+            if (active is null)
+            {
+                BoldButton.IsChecked = false;
+                ItalicButton.IsChecked = false;
+                UnderlineButton.IsChecked = false;
+                StrikethroughButton.IsChecked = false;
+                HandwrittenButton.IsChecked = false;
+                return;
+            }
+
+            var (bold, italic, underline, strikethrough, family, size, heading) = active.GetFormattingState();
+
+            BoldButton.IsChecked = bold;
+            ItalicButton.IsChecked = italic;
+            UnderlineButton.IsChecked = underline;
+            StrikethroughButton.IsChecked = strikethrough;
+
+            bool isHandwritten = family.Contains("Segoe Print", StringComparison.OrdinalIgnoreCase)
+                                 || family.Contains("Ink Free", StringComparison.OrdinalIgnoreCase)
+                                 || family.Contains("Handwritten", StringComparison.OrdinalIgnoreCase);
+            HandwrittenButton.IsChecked = isHandwritten;
+
+            // Sync Style combo
+            foreach (ComboBoxItem item in StyleCombo.Items)
+            {
+                if (string.Equals((string)item.Tag, heading, StringComparison.OrdinalIgnoreCase))
+                {
+                    item.IsSelected = true;
+                    break;
+                }
+            }
+
+            // Sync Font combo
+            foreach (ComboBoxItem item in FontFamilyCombo.Items)
+            {
+                string tag = (string)item.Tag;
+                if (family.Contains(tag, StringComparison.OrdinalIgnoreCase) ||
+                    (tag == "Handwritten" && isHandwritten))
+                {
+                    item.IsSelected = true;
+                    break;
+                }
+            }
+
+            // Sync Size combo
+            int roundedSize = (int)Math.Round(size);
+            foreach (ComboBoxItem item in FontSizeCombo.Items)
+            {
+                if (int.TryParse((string)item.Tag, out int tagSize) && tagSize == roundedSize)
+                {
+                    item.IsSelected = true;
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _suppressFormatSync = false;
+        }
+    }
+
+    private void Bold_Click(object sender, RoutedEventArgs e) => DoBold();
+    private void Italic_Click(object sender, RoutedEventArgs e) => DoItalic();
+    private void Underline_Click(object sender, RoutedEventArgs e) => DoUnderline();
+    private void Strikethrough_Click(object sender, RoutedEventArgs e) => DoStrikethrough();
+    private void Handwritten_Click(object sender, RoutedEventArgs e) => DoHandwritten();
+
+    private void Bold_Executed(object sender, ExecutedRoutedEventArgs e) => DoBold();
+    private void Italic_Executed(object sender, ExecutedRoutedEventArgs e) => DoItalic();
+    private void Underline_Executed(object sender, ExecutedRoutedEventArgs e) => DoUnderline();
+    private void Paste_Executed(object sender, ExecutedRoutedEventArgs e) => PageView.PasteFromClipboard();
+
+    private void DoBold()
+    {
+        EnsureActiveTextBox();
+        PageView.ActiveTextBox?.ToggleBold();
+        UpdateFormattingToolbarState();
+    }
+
+    private void DoItalic()
+    {
+        EnsureActiveTextBox();
+        PageView.ActiveTextBox?.ToggleItalic();
+        UpdateFormattingToolbarState();
+    }
+
+    private void DoUnderline()
+    {
+        EnsureActiveTextBox();
+        PageView.ActiveTextBox?.ToggleUnderline();
+        UpdateFormattingToolbarState();
+    }
+
+    private void DoStrikethrough()
+    {
+        EnsureActiveTextBox();
+        PageView.ActiveTextBox?.ToggleStrikethrough();
+        UpdateFormattingToolbarState();
+    }
+
+    private void DoHandwritten()
+    {
+        EnsureActiveTextBox();
+        if (PageView.ActiveTextBox is not null)
+        {
+            bool isHandwritten = HandwrittenButton.IsChecked == true;
+            PageView.ActiveTextBox.ApplyFontFamily(isHandwritten ? "Handwritten" : "Segoe UI");
+            UpdateFormattingToolbarState();
+        }
+    }
+
+    private void StyleCombo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressFormatSync || !IsLoaded) return;
+        if (StyleCombo.SelectedItem is ComboBoxItem item && item.Tag is string style)
+        {
+            EnsureActiveTextBox();
+            PageView.ActiveTextBox?.ApplyHeadingStyle(style);
+            UpdateFormattingToolbarState();
+        }
+    }
+
+    private void FontFamilyCombo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressFormatSync || !IsLoaded) return;
+        if (FontFamilyCombo.SelectedItem is ComboBoxItem item && item.Tag is string font)
+        {
+            EnsureActiveTextBox();
+            PageView.ActiveTextBox?.ApplyFontFamily(font);
+            UpdateFormattingToolbarState();
+        }
+    }
+
+    private void FontSizeCombo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressFormatSync || !IsLoaded) return;
+        if (FontSizeCombo.SelectedItem is ComboBoxItem item && double.TryParse((string)item.Tag, out double size))
+        {
+            EnsureActiveTextBox();
+            PageView.ActiveTextBox?.ApplyFontSize(size);
+            UpdateFormattingToolbarState();
+        }
+    }
+
+    private void EnsureActiveTextBox()
+    {
+        if (PageView.ActiveTextBox is null && _page is not null)
+        {
+            SelectTool(ToolKind.Text);
+            PageView.CreateTextBoxAt(new Point(100, 100));
+        }
+    }
+
+    private void InsertTable_Click(object sender, RoutedEventArgs e)
+    {
+        if (_page is null) return;
+        PageView.InsertTableDialog();
+    }
+
+    private void InsertLatex_Click(object sender, RoutedEventArgs e)
+    {
+        if (_page is null) return;
+        PageView.InsertLatexDialog();
+    }
+
+    private void InsertImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_page is null) return;
+
+        if (Clipboard.ContainsImage() || Clipboard.ContainsFileDropList())
+        {
+            PageView.PasteFromClipboard();
+        }
+        else
+        {
+            PageView.InsertImageFromFile();
+        }
     }
 
     private void SetStatus(string text) => StatusLabel.Text = text;

@@ -13,6 +13,28 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            var ex = args.ExceptionObject as Exception;
+            try
+            {
+                File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash-log.txt"), ex?.ToString() ?? "Unknown crash");
+                MessageBox.Show(ex?.ToString() ?? "Unknown fatal error", "Scribe Crash", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch { }
+        };
+
+        DispatcherUnhandledException += (_, args) =>
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash-log.txt"), args.Exception.ToString());
+                MessageBox.Show(args.Exception.ToString(), "Scribe Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch { }
+            args.Handled = true;
+        };
+
         // Headless ink render, used to inspect stroke quality without a pen.
         if (TryGetOption(e.Args, "--render-selftest", out var renderPath))
         {
@@ -38,7 +60,20 @@ public partial class App : Application
             return;
         }
 
-        new MainWindow().Show();
+        try
+        {
+            new MainWindow().Show();
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash-log.txt"), ex.ToString());
+                MessageBox.Show(ex.ToString(), "Scribe Startup Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch { }
+            Shutdown(1);
+        }
     }
 
     private static bool TryGetOption(string[] args, string name, out string value)

@@ -39,6 +39,12 @@ public sealed class PageDoc
     [JsonPropertyName("images")]
     public List<ImageDto> Images { get; set; } = new();
 
+    [JsonPropertyName("latexBlocks")]
+    public List<LatexDto> LatexBlocks { get; set; } = new();
+
+    [JsonPropertyName("tables")]
+    public List<TableDto> Tables { get; set; } = new();
+
     /// <summary>
     /// Provenance, populated by the OneNote importer so a page can be traced
     /// back to (or re-synced from) its original.
@@ -131,6 +137,61 @@ public sealed class TextBoxDto
 
     [JsonPropertyName("italic")]
     public bool Italic { get; set; }
+
+    [JsonPropertyName("underline")]
+    public bool Underline { get; set; }
+
+    [JsonPropertyName("strikethrough")]
+    public bool Strikethrough { get; set; }
+
+    [JsonPropertyName("heading")]
+    public string? Heading { get; set; }
+
+    /// <summary>Optional FlowDocument XAML for rich text formatting.</summary>
+    [JsonPropertyName("xaml")]
+    public string? Xaml { get; set; }
+}
+
+public sealed class LatexDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+
+    [JsonPropertyName("x")]
+    public double X { get; set; }
+
+    [JsonPropertyName("y")]
+    public double Y { get; set; }
+
+    [JsonPropertyName("latex")]
+    public string Latex { get; set; } = "";
+
+    [JsonPropertyName("scale")]
+    public double Scale { get; set; } = 20;
+
+    [JsonPropertyName("color")]
+    public string Color { get; set; } = "#1A1A1A";
+}
+
+public sealed class TableDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+
+    [JsonPropertyName("x")]
+    public double X { get; set; }
+
+    [JsonPropertyName("y")]
+    public double Y { get; set; }
+
+    [JsonPropertyName("rows")]
+    public List<List<string>> Rows { get; set; } = new();
+
+    [JsonPropertyName("columnWidths")]
+    public List<double>? ColumnWidths { get; set; }
+
+    [JsonPropertyName("hasHeader")]
+    public bool HasHeader { get; set; } = true;
 }
 
 public sealed class ImageDto

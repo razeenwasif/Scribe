@@ -5,10 +5,12 @@ using System.Windows.Ink;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using Scribe.Ink;
 using Scribe.Models;
 using Scribe.Services;
 using Scribe.Storage;
+using Scribe.Views;
 
 namespace Scribe.Controls;
 
@@ -35,6 +37,11 @@ public partial class PageCanvas : UserControl
     /// <summary>Raised whenever the page content changes and needs saving.</summary>
     public event EventHandler? ContentChanged;
 
+    /// <summary>Raised when the active text box selection or focus changes.</summary>
+    public event EventHandler? ActiveTextBoxSelectionChanged;
+
+    public PageTextBox? ActiveTextBox { get; private set; }
+
     public PageCanvas()
     {
         InitializeComponent();
@@ -45,11 +52,15 @@ public partial class PageCanvas : UserControl
 
         SetPageSize(DefaultPageWidth, DefaultPageHeight);
         ApplyTool();
+
+        // Command bindings for copy/paste
+        CommandBindings.Add(new CommandBinding(ApplicationCommands.Paste, (_, _) => PasteFromClipboard()));
     }
 
     public ScribeInkCanvas InkSurface => Ink;
 
     public string? PageFile => _pageFile;
+    public string? SectionDir => _sectionDir;
 
     // ------------------------------------------------------------------- tooling
 
@@ -65,18 +76,16 @@ public partial class PageCanvas : UserControl
         }
     }
 
-    private void ApplyTool()
+    public void ApplyTool()
     {
         Ink.ActiveTool = _activeTool;
 
-        // Text containers must not swallow pen input while an ink tool is
-        // active, or writing across one would land in the textbox instead of
-        // on the page.
-        bool textInteractive = _activeTool.Kind is ToolKind.Text or ToolKind.Select;
-        foreach (var child in Ink.Children.OfType<PageTextBox>())
+        // Elements must not swallow pen input while an ink tool is active
+        bool interactive = _activeTool.Kind is ToolKind.Text or ToolKind.Select;
+        foreach (UIElement child in Ink.Children)
         {
-            child.IsHitTestVisible = textInteractive;
-            child.Focusable = textInteractive;
+            child.IsHitTestVisible = interactive;
+            child.Focusable = interactive;
         }
 
         Cursor = _activeTool.Kind switch
@@ -100,19 +109,19 @@ public partial class PageCanvas : UserControl
 
             Ink.Strokes.Clear();
             Ink.Children.Clear();
+            ActiveTextBox = null;
 
             foreach (var stroke in StrokeCodec.FromDtos(doc.Strokes))
                 Ink.Strokes.Add(stroke);
 
             foreach (var tb in doc.TextBoxes) AddTextBoxControl(tb);
             foreach (var img in doc.Images) AddImageControl(img);
+            foreach (var lx in doc.LatexBlocks) AddLatexControl(lx);
+            foreach (var tbl in doc.Tables) AddTableControl(tbl);
 
             Backdrop.Kind = doc.Background.Kind;
             Backdrop.Spacing = doc.Background.Spacing;
 
-            // The colour stored in the page describes the light-mode paper. On
-            // a dark page it would glare, so the theme supplies the rule colour
-            // instead and the stored value is left untouched on disk.
             Backdrop.LineBrush = InkTheme.IsDark
                 ? (Brush)FindResource("PageLineBrush")
                 : new SolidColorBrush(
@@ -140,21 +149,31 @@ public partial class PageCanvas : UserControl
         foreach (var tb in Ink.Children.OfType<PageTextBox>())
         {
             tb.SyncToModel();
-
-            // Empty containers are noise; drop them rather than persist them.
             if (!string.IsNullOrWhiteSpace(tb.Model.Text))
                 _doc.TextBoxes.Add(tb.Model);
         }
 
         _doc.Images.Clear();
-        foreach (var img in Ink.Children.OfType<Image>())
+        foreach (var img in Ink.Children.OfType<PageImageControl>())
         {
-            if (img.Tag is not ImageDto dto) continue;
-            dto.X = InkCanvas.GetLeft(img);
-            dto.Y = InkCanvas.GetTop(img);
-            dto.Width = img.Width;
-            dto.Height = img.Height;
-            _doc.Images.Add(dto);
+            img.SyncToModel();
+            _doc.Images.Add(img.Model);
+        }
+
+        _doc.LatexBlocks.Clear();
+        foreach (var lx in Ink.Children.OfType<PageLatexControl>())
+        {
+            lx.SyncToModel();
+            if (!string.IsNullOrWhiteSpace(lx.Model.Latex))
+                _doc.LatexBlocks.Add(lx.Model);
+        }
+
+        _doc.Tables.Clear();
+        foreach (var tbl in Ink.Children.OfType<PageTableControl>())
+        {
+            tbl.SyncToModel();
+            if (tbl.Model.Rows.Count > 0)
+                _doc.Tables.Add(tbl.Model);
         }
 
         return _doc;
@@ -165,6 +184,7 @@ public partial class PageCanvas : UserControl
         _pageFile = null;
         _sectionDir = null;
         _doc = new PageDoc();
+        ActiveTextBox = null;
 
         _loading = true;
         try
@@ -194,8 +214,6 @@ public partial class PageCanvas : UserControl
 
         if (!Undo.IsApplying)
         {
-            // Copy the change sets: the event args are reused by WPF and must
-            // not be captured by reference in a closure that outlives the call.
             var added = e.Added.ToList();
             var removed = e.Removed.ToList();
 
@@ -222,14 +240,40 @@ public partial class PageCanvas : UserControl
 
     // --------------------------------------------------------------- text boxes
 
-    private PageTextBox AddTextBoxControl(TextBoxDto dto)
+    public PageTextBox AddTextBoxControl(TextBoxDto dto)
     {
         var tb = new PageTextBox(dto);
         InkCanvas.SetLeft(tb, dto.X);
         InkCanvas.SetTop(tb, dto.Y);
 
-        tb.TextChanged += (_, _) => MarkDirty();
-        tb.LostKeyboardFocus += (_, _) => RemoveIfEmpty(tb);
+        tb.ContentChanged += (_, _) =>
+        {
+            GrowToFitContent();
+            MarkDirty();
+        };
+
+        tb.SelectionStateChanged += (_, _) =>
+        {
+            ActiveTextBox = tb;
+            ActiveTextBoxSelectionChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        tb.Editor.GotKeyboardFocus += (_, _) =>
+        {
+            ActiveTextBox = tb;
+            ActiveTextBoxSelectionChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        tb.Editor.LostKeyboardFocus += (_, _) =>
+        {
+            RemoveIfEmpty(tb);
+            ActiveTextBoxSelectionChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        tb.RequestDelete += (_, _) =>
+        {
+            RemoveChildWithUndo(tb, "Delete text");
+        };
 
         Ink.Children.Add(tb);
         return tb;
@@ -240,6 +284,7 @@ public partial class PageCanvas : UserControl
         if (!string.IsNullOrWhiteSpace(tb.Text)) return;
 
         Ink.Children.Remove(tb);
+        if (ActiveTextBox == tb) ActiveTextBox = null;
         MarkDirty();
     }
 
@@ -257,49 +302,399 @@ public partial class PageCanvas : UserControl
         tb.IsHitTestVisible = true;
         tb.Focusable = true;
 
-        // Layout has not run yet, so focus on the next dispatcher pass.
-        Dispatcher.BeginInvoke(new Action(() => tb.Focus()),
+        if (!Undo.IsApplying)
+        {
+            Undo.Record("Add text",
+                undo: () => Ink.Children.Remove(tb),
+                redo: () => Ink.Children.Add(tb));
+        }
+
+        Dispatcher.BeginInvoke(new Action(() => tb.Editor.Focus()),
             System.Windows.Threading.DispatcherPriority.Input);
 
         MarkDirty();
     }
 
-    private void AddImageControl(ImageDto dto)
+    // ------------------------------------------------------------------- images
+
+    public PageImageControl? AddImageControl(ImageDto dto)
+    {
+        if (_sectionDir is null) return null;
+
+        var imgControl = new PageImageControl(dto, _sectionDir);
+        InkCanvas.SetLeft(imgControl, dto.X);
+        InkCanvas.SetTop(imgControl, dto.Y);
+
+        imgControl.Changed += (_, _) =>
+        {
+            GrowToFitContent();
+            MarkDirty();
+        };
+
+        imgControl.RequestDelete += (_, _) =>
+        {
+            RemoveChildWithUndo(imgControl, "Delete image");
+        };
+
+        Ink.Children.Add(imgControl);
+        return imgControl;
+    }
+
+    // ------------------------------------------------------------- LaTeX blocks
+
+    public PageLatexControl AddLatexControl(LatexDto dto)
+    {
+        var lxControl = new PageLatexControl(dto);
+        InkCanvas.SetLeft(lxControl, dto.X);
+        InkCanvas.SetTop(lxControl, dto.Y);
+
+        lxControl.Changed += (_, _) =>
+        {
+            GrowToFitContent();
+            MarkDirty();
+        };
+
+        lxControl.RequestDelete += (_, _) =>
+        {
+            RemoveChildWithUndo(lxControl, "Delete equation");
+        };
+
+        Ink.Children.Add(lxControl);
+        return lxControl;
+    }
+
+    public void InsertLatexDialog(Point? atPoint = null)
+    {
+        var owner = Window.GetWindow(this);
+        var dialog = new LatexEditDialog("", 22, isEditing: false);
+        if (owner is not null) dialog.Owner = owner;
+
+        if (dialog.ShowDialog() == true)
+        {
+            var pos = atPoint ?? GetViewportCenter();
+            var dto = new LatexDto
+            {
+                X = pos.X,
+                Y = pos.Y,
+                Latex = dialog.ResultLatex,
+                Scale = dialog.ResultScale,
+            };
+
+            var lx = AddLatexControl(dto);
+            if (!Undo.IsApplying)
+            {
+                Undo.Record("Insert equation",
+                    undo: () => Ink.Children.Remove(lx),
+                    redo: () => Ink.Children.Add(lx));
+            }
+
+            GrowToFitContent();
+            MarkDirty();
+        }
+    }
+
+    // ------------------------------------------------------------------- tables
+
+    public PageTableControl AddTableControl(TableDto dto)
+    {
+        var tblControl = new PageTableControl(dto);
+        InkCanvas.SetLeft(tblControl, dto.X);
+        InkCanvas.SetTop(tblControl, dto.Y);
+
+        tblControl.Changed += (_, _) =>
+        {
+            GrowToFitContent();
+            MarkDirty();
+        };
+
+        tblControl.RequestDelete += (_, _) =>
+        {
+            RemoveChildWithUndo(tblControl, "Delete table");
+        };
+
+        Ink.Children.Add(tblControl);
+        return tblControl;
+    }
+
+    public void InsertTableDialog(Point? atPoint = null)
+    {
+        var owner = Window.GetWindow(this);
+        var dialog = new TableInsertDialog();
+        if (owner is not null) dialog.Owner = owner;
+
+        if (dialog.ShowDialog() == true)
+        {
+            var pos = atPoint ?? GetViewportCenter();
+            var rows = new List<List<string>>();
+
+            // Header row
+            var header = new List<string>();
+            for (int c = 1; c <= dialog.Columns; c++)
+                header.Add(dialog.HasHeader ? $"Header {c}" : "");
+            rows.Add(header);
+
+            for (int r = 1; r < dialog.Rows; r++)
+            {
+                var row = new List<string>();
+                for (int c = 1; c <= dialog.Columns; c++) row.Add("");
+                rows.Add(row);
+            }
+
+            var dto = new TableDto
+            {
+                X = pos.X,
+                Y = pos.Y,
+                Rows = rows,
+                HasHeader = dialog.HasHeader,
+            };
+
+            var tbl = AddTableControl(dto);
+            if (!Undo.IsApplying)
+            {
+                Undo.Record("Insert table",
+                    undo: () => Ink.Children.Remove(tbl),
+                    redo: () => Ink.Children.Add(tbl));
+            }
+
+            GrowToFitContent();
+            MarkDirty();
+        }
+    }
+
+    // ------------------------------------------------------------- clipboard & paste
+
+    public void PasteFromClipboard(Point? atPoint = null)
     {
         if (_sectionDir is null) return;
 
-        var path = Path.Combine(_sectionDir, dto.File.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(path)) return;
+        var pos = atPoint ?? GetViewportCenter();
+
+        // 1. Check for Image in clipboard
+        if (Clipboard.ContainsImage())
+        {
+            var imgSource = Clipboard.GetImage();
+            if (imgSource is not null)
+            {
+                PasteBitmapSource(imgSource, pos);
+                return;
+            }
+        }
+
+        // 2. Check for File Drop list with images
+        if (Clipboard.ContainsFileDropList())
+        {
+            var files = Clipboard.GetFileDropList();
+            foreach (string? file in files)
+            {
+                if (!string.IsNullOrEmpty(file) && IsImageExtension(Path.GetExtension(file)))
+                {
+                    PasteImageFile(file, pos);
+                    return;
+                }
+            }
+        }
+
+        // 3. Check for Table in clipboard
+        var tableDto = PageTableControl.TryParseClipboardTable();
+        if (tableDto is not null && tableDto.Rows.Count > 0)
+        {
+            tableDto.X = pos.X;
+            tableDto.Y = pos.Y;
+            var tbl = AddTableControl(tableDto);
+
+            if (!Undo.IsApplying)
+            {
+                Undo.Record("Paste table",
+                    undo: () => Ink.Children.Remove(tbl),
+                    redo: () => Ink.Children.Add(tbl));
+            }
+
+            GrowToFitContent();
+            MarkDirty();
+            return;
+        }
+
+        // 4. Plain / Rich Text
+        if (Clipboard.ContainsText())
+        {
+            if (ActiveTextBox is not null && ActiveTextBox.Editor.IsKeyboardFocused)
+            {
+                // Let the focused RichTextBox handle its native paste
+                ActiveTextBox.Editor.Paste();
+            }
+            else
+            {
+                var text = Clipboard.GetText();
+                var dto = new TextBoxDto
+                {
+                    X = pos.X,
+                    Y = pos.Y,
+                    Text = text,
+                    Width = 400,
+                };
+                var tb = AddTextBoxControl(dto);
+                if (!Undo.IsApplying)
+                {
+                    Undo.Record("Paste text",
+                        undo: () => Ink.Children.Remove(tb),
+                        redo: () => Ink.Children.Add(tb));
+                }
+                GrowToFitContent();
+                MarkDirty();
+            }
+        }
+    }
+
+    public void InsertImageFromFile()
+    {
+        if (_sectionDir is null) return;
+
+        var dlg = new OpenFileDialog
+        {
+            Title = "Insert Image",
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All Files (*.*)|*.*",
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            PasteImageFile(dlg.FileName, GetViewportCenter());
+        }
+    }
+
+    private void PasteImageFile(string filePath, Point pos)
+    {
+        if (_sectionDir is null || !File.Exists(filePath)) return;
 
         try
         {
+            var bytes = File.ReadAllBytes(filePath);
+            var ext = Path.GetExtension(filePath);
+            if (string.IsNullOrEmpty(ext)) ext = ".png";
+
+            var relativePath = SaveAssetBytes(bytes, ext);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
-            bitmap.UriSource = new Uri(path);
-
-            // Load the bytes up front so the file is not held open, which would
-            // otherwise block the folder from syncing or being moved.
+            bitmap.UriSource = new Uri(Path.Combine(_sectionDir, relativePath));
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
             bitmap.EndInit();
             bitmap.Freeze();
 
-            var image = new Image
+            double width = bitmap.PixelWidth > 700 ? 700 : bitmap.PixelWidth;
+            double height = bitmap.PixelWidth > 700 ? (bitmap.PixelHeight * 700.0 / bitmap.PixelWidth) : bitmap.PixelHeight;
+
+            var dto = new ImageDto
             {
-                Source = bitmap,
-                Width = dto.Width > 0 ? dto.Width : bitmap.PixelWidth,
-                Height = dto.Height > 0 ? dto.Height : bitmap.PixelHeight,
-                Stretch = Stretch.Fill,
-                Tag = dto,
+                X = pos.X,
+                Y = pos.Y,
+                Width = width,
+                Height = height,
+                File = relativePath,
             };
 
-            InkCanvas.SetLeft(image, dto.X);
-            InkCanvas.SetTop(image, dto.Y);
-            Ink.Children.Add(image);
+            var img = AddImageControl(dto);
+            if (img is not null && !Undo.IsApplying)
+            {
+                Undo.Record("Insert image",
+                    undo: () => Ink.Children.Remove(img),
+                    redo: () => Ink.Children.Add(img));
+            }
+
+            GrowToFitContent();
+            MarkDirty();
         }
-        catch
+        catch (Exception ex)
         {
-            // A missing or unreadable asset should cost one image, not the page.
+            MessageBox.Show(Window.GetWindow(this), $"Could not insert image: {ex.Message}", "Image Error", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void PasteBitmapSource(BitmapSource bitmapSource, Point pos)
+    {
+        if (_sectionDir is null) return;
+
+        try
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            var bytes = ms.ToArray();
+
+            var relativePath = SaveAssetBytes(bytes, ".png");
+
+            double width = bitmapSource.PixelWidth > 700 ? 700 : bitmapSource.PixelWidth;
+            double height = bitmapSource.PixelWidth > 700 ? (bitmapSource.PixelHeight * 700.0 / bitmapSource.PixelWidth) : bitmapSource.PixelHeight;
+
+            var dto = new ImageDto
+            {
+                X = pos.X,
+                Y = pos.Y,
+                Width = width,
+                Height = height,
+                File = relativePath,
+            };
+
+            var img = AddImageControl(dto);
+            if (img is not null && !Undo.IsApplying)
+            {
+                Undo.Record("Paste image",
+                    undo: () => Ink.Children.Remove(img),
+                    redo: () => Ink.Children.Add(img));
+            }
+
+            GrowToFitContent();
+            MarkDirty();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), $"Could not paste image: {ex.Message}", "Paste Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private string SaveAssetBytes(byte[] data, string extension)
+    {
+        if (_sectionDir is null) throw new InvalidOperationException("No section open.");
+        var assets = Path.Combine(_sectionDir, "assets");
+        Directory.CreateDirectory(assets);
+
+        var name = Guid.NewGuid().ToString("n")[..12] + extension;
+        File.WriteAllBytes(Path.Combine(assets, name), data);
+        return Path.Combine("assets", name).Replace('\\', '/');
+    }
+
+    private static bool IsImageExtension(string? ext)
+    {
+        if (string.IsNullOrEmpty(ext)) return false;
+        ext = ext.ToLowerInvariant();
+        return ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp";
+    }
+
+    private Point GetViewportCenter()
+    {
+        double scale = ZoomTransform.ScaleX;
+        if (scale <= 0) scale = 1.0;
+
+        double vx = (Scroller.HorizontalOffset + Scroller.ViewportWidth / 2) / scale;
+        double vy = (Scroller.VerticalOffset + Scroller.ViewportHeight / 2) / scale;
+
+        return new Point(Math.Max(40, vx - 100), Math.Max(40, vy - 100));
+    }
+
+    private void RemoveChildWithUndo(UIElement element, string actionLabel)
+    {
+        if (!Ink.Children.Contains(element)) return;
+
+        Ink.Children.Remove(element);
+        if (ReferenceEquals(ActiveTextBox, element)) ActiveTextBox = null;
+
+        if (!Undo.IsApplying)
+        {
+            Undo.Record(actionLabel,
+                undo: () => Ink.Children.Add(element),
+                redo: () => Ink.Children.Remove(element));
+        }
+
+        MarkDirty();
     }
 
     // ------------------------------------------------------------ page geometry
@@ -314,10 +709,6 @@ public partial class PageCanvas : UserControl
         Backdrop.Height = height;
     }
 
-    /// <summary>
-    /// Extends the page when writing approaches an edge, so the surface behaves
-    /// like OneNote's endless page instead of a fixed sheet.
-    /// </summary>
     private void GrowToFitContent()
     {
         double maxX = 0, maxY = 0;
@@ -346,8 +737,6 @@ public partial class PageCanvas : UserControl
         double width = Math.Max(DefaultPageWidth, maxX + GrowthMargin);
         double height = Math.Max(DefaultPageHeight, maxY + GrowthMargin);
 
-        // Only ever grow within a session. Shrinking mid-edit would yank the
-        // page out from under the scroll position while erasing.
         width = Math.Max(width, PageSurface.Width);
         height = Math.Max(height, PageSurface.Height);
 
@@ -371,7 +760,6 @@ public partial class PageCanvas : UserControl
         double newScale = Math.Clamp(scale, MinZoom, MaxZoom);
         if (Math.Abs(newScale - oldScale) < 0.0001) return;
 
-        // Keep whatever sits under the pointer pinned there across the zoom.
         double contentX = (Scroller.HorizontalOffset + viewportPoint.X) / oldScale;
         double contentY = (Scroller.VerticalOffset + viewportPoint.Y) / oldScale;
 
@@ -400,7 +788,6 @@ public partial class PageCanvas : UserControl
         base.OnPreviewMouseWheel(e);
     }
 
-    // Middle-drag panning, which is the mouse equivalent of a two-finger drag.
     private bool _mousePanning;
     private Point _mousePanOrigin;
 
@@ -423,9 +810,7 @@ public partial class PageCanvas : UserControl
         {
             var pt = e.GetPosition(Ink);
 
-            // Clicking an existing container should edit it, not stack a new
-            // one on top.
-            if (e.OriginalSource is not PageTextBox && !IsInsideTextBox(e.OriginalSource))
+            if (!IsInsideInteractiveElement(e.OriginalSource))
             {
                 CreateTextBoxAt(pt);
                 e.Handled = true;
@@ -436,12 +821,12 @@ public partial class PageCanvas : UserControl
         base.OnPreviewMouseDown(e);
     }
 
-    private static bool IsInsideTextBox(object? source)
+    private static bool IsInsideInteractiveElement(object? source)
     {
         var d = source as DependencyObject;
         while (d is not null)
         {
-            if (d is PageTextBox) return true;
+            if (d is PageTextBox or PageImageControl or PageLatexControl or PageTableControl) return true;
             d = VisualTreeHelper.GetParent(d);
         }
         return false;
@@ -477,10 +862,6 @@ public partial class PageCanvas : UserControl
     }
 
     // ------------------------------------------------------------ touch gestures
-    //
-    // Touch is intercepted here, above the ink canvas, so a palm or a stray
-    // finger drives the viewport instead of leaving a mark. One finger pans,
-    // two fingers pan and pinch-zoom together.
 
     private readonly Dictionary<int, Point> _touches = new();
 
@@ -549,8 +930,6 @@ public partial class PageCanvas : UserControl
 
         var centre = new Point(sx / _touches.Count, sy / _touches.Count);
 
-        // Mean distance from the centroid, which generalises pinch to any
-        // number of contacts instead of only handling exactly two.
         double spread = 0;
         foreach (var p in _touches.Values)
             spread += (p - centre).Length;

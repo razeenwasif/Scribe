@@ -151,7 +151,5 @@ of what Scribe does.
 
 ## Known gaps
 
-- Text formatting is plain; no bold/italic/colour runs yet in the editor.
-- Images import and display but cannot yet be inserted or resized in the app.
 - Search covers page titles and typed text, not handwriting recognition.
 - No page reordering by drag yet; order is held in `section.json`.
