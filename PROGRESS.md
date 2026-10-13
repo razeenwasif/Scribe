@@ -1,25 +1,41 @@
 # Scribe Development Progress
 
-## Requested Features
-- [x] Image Pasting (Clipboard paste, file save to assets, canvas placement, move/resize/interact)
-- [x] LaTeX Formatter (Formula editing, formatting, real-time rendering on page via WpfMath)
-- [x] Table Support (Create tables, edit cells, add/remove rows and columns, Tab and arrow navigation)
-- [x] Copy / Paste Tables (Copy table TSV/HTML to clipboard, paste table from TSV/Markdown/HTML/Scribe format)
-- [x] Typography & Formatting:
-  - [x] Handwritten font style option (Segoe Print, Ink Free, Segoe Script, Comic Sans MS, cursive)
-  - [x] Font size options (11, 12, 13, 14, 15, 16, 18, 20, 24, 28, 32, 40 pt)
-  - [x] Header and Title options (Title, Heading 1, Heading 2, Heading 3, Body, Handwritten presets)
-  - [x] Bold, Italic, Underline, and Strikethrough options (with Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+T shortcuts)
-- [x] UI/Toolbar integration for new features (Formatting toolbar, table insertion tools, latex dialog/insert, image paste)
-- [x] File format and storage serialization / deserialization tests
+## macOS rewrite (Rust + SwiftUI)
 
-## Status Log
-- Initial assessment completed.
-- Added WpfMath package for high-fidelity LaTeX equation rendering.
-- Implemented `PageLatexControl` and `LatexEditDialog` with live preview and math snippet buttons.
-- Implemented `PageTableControl` and `TableInsertDialog` with cell editing, dynamic row/column operations, and TSV/HTML/Markdown copy-paste.
-- Implemented `PageImageControl` with drag-to-move, corner resize handle, context menu, and clipboard paste.
-- Implemented rich text `PageTextBox` with inline runs, bold, italic, underline, strikethrough, font size, font family (including handwritten), and heading styles.
-- Updated `MainWindow.xaml` toolbar with Insert group (Table, LaTeX, Image) and Text Formatting strip.
-- Updated `docs/FORMAT.md` and `README.md`.
-- Verified single-file standalone build with `./build.sh` (`dist/Scribe.exe`).
+The Windows/WPF app (C#) has been replaced by a macOS app: a Rust core
+(`crates/scribe-core`) and a SwiftUI front end (`macos/`). The on-disk format is
+unchanged, so notebooks move between the two. The WPF sources remain in git
+history (commit `49a6b5f`).
+
+### Carried over
+- [x] Folder workspace: notebooks, sections, pages, manifests, atomic writes
+- [x] Pressure-varying ink with Catmull-Rom smoothing, pressure smoothing, end tapers
+- [x] Pen tray, highlighter, whole-stroke and partial eraser, tablet eraser end
+- [x] Lasso selection: move, resize, delete, copy/cut/paste
+- [x] Text boxes with headings, fonts, sizes, bold/italic/underline/strikethrough
+- [x] LaTeX equations with live preview (SwiftMath)
+- [x] Tables: header row, column widths, row/column editing, copy as table or Markdown
+- [x] Images: paste, insert, drag and drop, resize
+- [x] Paste tables from HTML, Markdown, TSV and CSV
+- [x] Ruled / grid / dots / blank paper
+- [x] Dark and light themes with display-only ink adaptation
+- [x] Search across every notebook
+- [x] Undo/redo, autosave, title-follows-file renaming
+- [x] Ink render self-test (`--render-selftest`)
+
+### New on macOS
+- [x] Per-run text formatting stored as portable `spans` (see docs/FORMAT.md)
+- [x] Unknown JSON fields preserved through every save
+- [x] Page reordering by drag, moving pages between sections
+- [x] Deletes go to the Trash
+- [x] Search also covers table cells
+- [x] Redesigned app icon, drawn by the Rust ink engine (`crates/scribe-icon`)
+
+### Not carried over
+- [ ] OneNote import (needs OneNote's Windows COM API; use the Windows build, then open the folder here)
+- [ ] Touch-specific palm rejection (no touchscreens on the Mac)
+
+## Tests
+- `cargo test -p scribe-core`: format round trips, legacy files, unknown-field
+  preservation, manifests, renames, moves, search, geometry, erase, tables, FFI
+- `swift test`: core bridge, rich-text spans, page model undo and growth

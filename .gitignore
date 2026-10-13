@@ -1,5 +1,14 @@
-bin/
-obj/
+# Rust
+target/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# App bundle and generated icon
 dist/
-__pycache__/
-*.user
+macos/Resources/AppIcon.iconset/
+macos/Resources/AppIcon.icns
+macos/Resources/AppIcon-preview.png
+
+.DS_Store

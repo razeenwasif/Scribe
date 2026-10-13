@@ -16,8 +16,9 @@ Scribe to read it. This document is the contract.
         ab12cd34ef56.png
 ```
 
-Folder and file names follow the user-visible titles, sanitised for Windows and
-de-duplicated with a ` (2)` suffix. Names are for humans; identity lives in the
+Folder and file names follow the user-visible titles, sanitised for both macOS
+and Windows (so a synced folder opens on either) and de-duplicated with a ` (2)`
+suffix. Names are for humans; identity lives in the
 `id` fields, and display order lives in the manifests.
 
 A directory is a notebook only if it contains `notebook.json`, and a section
@@ -75,8 +76,10 @@ append-if-missing rule.
 }
 ```
 
-All coordinates are in **device-independent pixels** (1/96 inch), with the
-origin at the top-left of the page. The page grows downward and rightward as
+All coordinates are in **page units**, with the origin at the top-left of the
+page. One unit is one device-independent pixel on Windows and one point on
+macOS; at 100% zoom it is one unit on screen in both apps, so a page looks the
+same in either. The page grows downward and rightward as
 content is added; there is no fixed page size.
 
 ### background
@@ -112,7 +115,7 @@ thousands of points. Coordinates are rounded to 2 decimal places and pressure to
 stored.
 
 `tip` is `ellipse` or `rectangle`. `fit` enables spline smoothing when
-rendering. `pressureSensitive: false` renders an even width regardless of the
+rendering (and erasing: a partial erase cuts along the smoothed line). `pressureSensitive: false` renders an even width regardless of the
 pressure values, which is what the highlighter uses.
 
 A stroke with fewer than 3 numbers in `points` is skipped. Out-of-range pressure
@@ -135,12 +138,30 @@ is clamped, so hand-edited files will not crash the app.
   "underline": false,
   "strikethrough": false,
   "heading": "body",
+  "spans": [ { "start": 21, "length": 5, "bold": true } ],
   "xaml": "<FlowDocument ...>...</FlowDocument>"
 }
 ```
 
-`height: null` means size-to-content. Empty containers are dropped on save
-rather than persisted. `xaml` stores optional rich flow document formatting.
+`height: null` (or absent) means size-to-content. Empty containers are dropped
+on save rather than persisted.
+
+The box-level fields (`fontFamily`, `fontSize`, `color`, `bold`, …) are the
+formatting of the whole box. `spans` overrides them for runs of text: `start`
+and `length` count **UTF-16 code units** (how both AppKit and .NET index
+strings), and any of `bold`, `italic`, `underline`, `strikethrough`,
+`fontSize`, `fontFamily` and `color` may appear; what is left out is inherited
+from the box. Out-of-range spans are clipped, never trusted.
+
+`fontFamily` holds a logical name shared by both apps: `Segoe UI` (the system
+font), `Handwritten`, `Georgia`, `Cascadia Code` (monospace), `Arial`,
+`Times New Roman`, `Comic Sans MS`. Each app maps these onto fonts it has.
+
+`heading` is one of `body`, `title`, `h1`, `h2`, `h3`, `handwritten`.
+
+`xaml` is rich text written by the Windows app. It is kept verbatim while the
+text is unchanged; once the box is edited it describes stale text, so the macOS
+app drops it and writes `spans` instead.
 
 ### images
 
@@ -185,7 +206,10 @@ Stores structured data tables with optional header row and custom column widths.
 
 - `schema` carries a name and a major version. A reader should refuse a major
   version it does not know rather than guess.
-- Unknown fields are preserved by intent: add fields freely, and treat missing
-  fields as their documented default.
+- Unknown fields are preserved: add fields freely, and treat missing fields as
+  their documented default. The macOS app carries unknown fields on the page,
+  its background, and every object (matched by `id`) through each save.
 - Writers should write via a temporary file and swap it into place, which is
   what Scribe does, so that a reader or sync client never sees a partial file.
+- The reference implementation of this format is `crates/scribe-core`
+  (`model.rs` and `workspace.rs`), with tests in `crates/scribe-core/tests`.

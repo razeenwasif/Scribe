@@ -1,96 +1,97 @@
+<p align="center"><img src="docs/icon.png" width="160" alt="Scribe icon"></p>
+
 # Scribe
 
-A standalone Windows notebook app for handwritten notes, built around the pen
-first. Imports your OneNote notebooks, and keeps everything in plain folders and
-JSON files on your own disk.
+A notebook app for macOS, built around the pen. Handwriting, typed text,
+images, equations and tables share one infinite page, and everything is kept
+in plain folders and JSON files on your own disk.
 
-Ships as a **single `Scribe.exe`**. No installer, no .NET runtime to install, no
-other files to copy.
+Scribe is written in **Rust** and **SwiftUI**:
+
+- `crates/scribe-core`: the Rust core. It holds the file format, the folder
+  workspace, search, table clipboard formats, theme-aware colour, and the ink
+  geometry engine that turns pen samples into pressure-varying outlines.
+- `macos/`: the SwiftUI app. It holds the window, the notebook navigator, the
+  page canvas (AppKit, for pen input and zoom), and the on-page objects. It
+  calls the core through a small C ABI.
 
 ---
 
 ## Build
 
-The project targets Windows but builds from Linux, macOS or Windows:
+Needs Rust (`cargo`) and Xcode 16 or newer, on macOS 15 or later.
 
 ```bash
-./build.sh            # writes dist/Scribe.exe
-./build.sh out/dir    # or choose the output folder
+./build.sh
 ```
 
-Requires the .NET 10 SDK. From WSL you can drop the result straight onto the
-Windows side:
+That builds the Rust core, draws the app icon, builds the app, and writes
+`dist/Scribe.app`. Copy it to `/Applications` or open it in place:
 
 ```bash
-cp dist/Scribe.exe /mnt/c/Users/<you>/Desktop/
+open dist/Scribe.app
 ```
+
+To run both test suites (Rust and Swift) as part of the build:
+
+```bash
+./build.sh --test
+```
+
+For day-to-day work you can also open `Package.swift` in Xcode once the Rust
+core has been built (`cargo build --release -p scribe-core`).
 
 ## The drawing surface
 
-This is the part the app is built around.
-
 - **Pressure-varying strokes.** Ink is rendered as a true outline whose width
-  follows stylus pressure, so downstrokes thicken and strokes taper as the nib
-  lands and lifts. WPF's stock ink stamps a fixed-size tip along the path, which
-  is why default WPF ink looks like a marker; Scribe replaces that renderer
-  (`Ink/StrokeGeometryBuilder.cs`).
-- **Wet ink on the pen thread.** The line under the nib is drawn by a
-  `DynamicRenderer` running on WPF's dedicated pen thread, so it keeps up with
-  the digitiser even while the UI thread is laying out or saving.
-- **Real palm rejection.** A resting palm registers as touch, never as pen, so
-  touch simply does not draw. One finger pans, two fingers pinch to zoom. No
-  contact-size heuristics, so no false positives. If you have no pen, the
-  behaviour can be switched in code (`ScribeInkCanvas.TouchMode`).
-- **Jitter smoothing.** Raw pen data is polygonal at speed; strokes are
-  resampled along a Catmull-Rom spline and pressure is averaged over a short
-  window so width does not pulse.
-- **The pen's eraser end erases**, whatever tool is selected.
+  follows pressure, so downstrokes thicken and strokes taper as the nib lands
+  and lifts. With a drawing tablet (Wacom and friends), pressure comes straight
+  from the pen. A mouse or trackpad draws at an even mid pressure.
+- **Jitter smoothing.** Strokes are resampled along a Catmull-Rom spline and
+  pressure is averaged over a short window, so curves read smoothly and the
+  width does not pulse.
+- **The tablet pen's eraser end erases**, whatever tool is selected.
+- **Zoom that stays crisp.** Pinch, or ⌘-scroll, from 15% to 600%. Ink, text,
+  equations and tables are redrawn at every zoom level, not scaled bitmaps.
 
 ### Tools
 
 | Key | Tool | Notes |
 |-----|------|-------|
-| `P` | Pen | Pressure-sensitive |
-| `H` | Highlighter | Even width, translucent, sits under nothing |
+| `P` | Pen | Pressure-sensitive; pick a colour from the tray |
+| `H` | Highlighter | Even width, translucent |
 | `E` | Eraser | Press again for a partial eraser that rubs out part of a stroke |
-| `S` | Lasso | Select, move and resize ink |
-| `T` | Text | Click anywhere to drop a text container |
-| `Space` | Pan | Or drag with the middle mouse button |
+| `S` | Lasso | Select ink and objects; drag to move, corner handle to resize (⇧ keeps proportions), ⌫ to delete, ⌘C/⌘X/⌘V |
+| `T` | Text | Click anywhere for a text box; objects become editable |
+| `Space` | Pan | Hold it, or drag with the middle button |
 
-`Ctrl+Z` / `Ctrl+Y` undo and redo, `Ctrl+N` new page, `Ctrl+F` search,
-`Ctrl+S` save (pages also autosave). `Ctrl` + mouse wheel zooms.
+| Shortcut | Action |
+|----------|--------|
+| ⌘N / ⇧⌘N | New page / new notebook |
+| ⌘Z / ⇧⌘Z | Undo / redo, across ink, objects and typing |
+| ⌘F | Search every notebook (titles, typed text, table cells) |
+| ⌘B ⌘I ⌘U ⇧⌘X | Bold, italic, underline, strikethrough |
+| ⌥⌘T ⌥⌘E ⌥⌘I | Insert table, equation, image |
+| ⌥⌘V | Paste onto the page: images, tables (from Numbers, Excel, web pages, Markdown or CSV) or text |
+| ⌘= ⌘− ⌘0 ⌘9 | Zoom in, zoom out, actual size, fit width |
+| ⇧⌘D | Switch between dark and light page |
 
-## Importing from OneNote
+## On the page
 
-Press **Import** in the top right, tick the notebooks you want, and import.
-Nothing in OneNote is modified or removed.
-
-Handwriting comes across as **real strokes with pressure preserved**, not as
-pictures of writing: OneNote stores ink as base64 ISF inside `<one:InkData>`,
-which is the same format WPF's own ink reads.
-
-Requirements and limits:
-
-- Needs the **OneNote desktop app** (the one that ships with Office, sometimes
-  listed as "OneNote 2016"). The Store version does not expose the required
-  interface.
-- Only notebooks **currently open in OneNote** are listed. Open a notebook in
-  OneNote and press Refresh if one is missing.
-- Section groups are flattened into section names as `Group — Section`.
-- Text arrives as plain text; character-level formatting (bold, colour, size)
-  is not carried over. Page position, ink and images are.
-
-For a large library there is a scripted path that skips the dialog:
-
-```
-Scribe.exe --import-onenote "D:\Notebooks"
-```
-
-It writes an `import-log.txt` alongside the notebooks.
+- **Text boxes** with per-word formatting: heading styles, fonts (including a
+  handwritten face), sizes, bold, italic, underline, strikethrough and colour.
+  Drag the right edge to rewrap.
+- **Equations** in LaTeX with a live preview, typeset natively by
+  [SwiftMath](https://github.com/mgriebling/SwiftMath). Double-click to edit.
+- **Tables** with a header row, resizable columns, and row and column
+  insertion from the right-click menu. Copy a table out as a real table (HTML
+  plus tab-separated text) or as Markdown.
+- **Images** pasted, dropped in from a file, or chosen with Insert ▸ Image.
+  Drag the corner to resize.
 
 ## Where your notes live
 
-By default `Documents\Scribe Notebooks`, as an ordinary folder tree:
+By default in `~/Documents/Scribe Notebooks`, as an ordinary folder tree:
 
 ```
 Scribe Notebooks/
@@ -102,54 +103,65 @@ Scribe Notebooks/
       assets/ab12cd.png
 ```
 
-One JSON file per page, named after the page. You can open the folder in
-Explorer, sync it with OneDrive or Dropbox, keep it in git, or read it with any
-tool — the format is documented in [docs/FORMAT.md](docs/FORMAT.md). Writes go
-through a temp file and an atomic swap, so a crash or a sync client reading
-mid-write never sees half a page.
+One JSON file per page, named after the page. You can browse the folder in
+Finder, sync it with iCloud Drive or Dropbox, keep it in git, or read it with
+any tool. The format is documented in [docs/FORMAT.md](docs/FORMAT.md). Writes
+go through a temporary file and an atomic rename, so a crash or a sync client
+reading mid-write never sees half a page. File ▸ Open Notebook Folder… points
+Scribe at a different folder.
 
-Right-click a notebook or section for **Reveal in File Explorer**.
+Deleting a page, section or notebook moves it to the Trash, so it can be
+recovered.
+
+The format is the same one the earlier Windows version of Scribe used, so
+notebooks move between the two. Notebooks imported from OneNote on Windows
+open here with their handwriting intact.
 
 ## Themes
 
-Dark by default; the sun/moon button in the toolbar switches.
-
-Ink colour is adapted for display only — black handwriting shows as near-white
-on a dark page and stays black in the file. A notebook written in dark mode
-still looks right in light mode, and imported OneNote ink (almost always black)
-is legible rather than invisible.
+Dark by default; the sun/moon button or ⇧⌘D switches. Ink colour is adapted
+for display only: black handwriting shows as near-white on a dark page and stays
+black in the file.
 
 ## Checking the ink engine
 
-Ink cannot be exercised by UI automation: WPF collects it through the stylus
-stack, which ignores injected mouse input. Instead there is a render test that
-draws sample strokes through the identical code path the pen uses:
+Synthetic mouse events carry no pressure, so the ink engine is checked with a
+render test that draws sample strokes through the same code path the pen uses:
 
-```
-Scribe.exe --render-selftest out.png
+```bash
+dist/Scribe.app/Contents/MacOS/Scribe --render-selftest out.png
 ```
 
-The sheet shows pressure response, tapering, smoothing, the highlighter, and a
-stroke round-tripped through ISF and the JSON format — the OneNote import path,
-verifiable without OneNote.
+The sheet shows pressure response, tapering, smoothing, the highlighter, dots,
+and a stroke round-tripped through the JSON format, on both themes.
+
+## The icon
+
+The app icon is drawn by `crates/scribe-icon` using the app's own ink engine:
+the cursive S on the paper is a real pressure-varying stroke, heavier on the
+downstrokes. `build.sh` renders it at every size macOS needs and packs it into
+`AppIcon.icns`.
 
 ## Layout of the source
 
 | Path | What is in it |
 |------|----------------|
-| `Ink/` | The ink engine: geometry, renderers, tools, theme adaptation |
-| `Controls/` | Page canvas, page background, text containers, prompt dialog |
-| `Storage/` | Folder-format workspace, stroke codec, settings |
-| `Import/` | OneNote COM binding and the importer |
-| `Themes/` | Palettes, control styles, icon geometry |
-| `Diagnostics/` | The ink render self-test |
-| `tools/` | Icon generator, notes on re-deriving the OneNote vtable |
-
-The app icon is generated, not hand-drawn — `tools/make_icon.py` rasterises it
-with the same variable-width stroke maths the app uses, so the mark is a picture
-of what Scribe does.
+| `crates/scribe-core/src/model.rs` | The page, notebook and section formats |
+| `crates/scribe-core/src/workspace.rs` | Folder workspace, manifests, search, atomic writes |
+| `crates/scribe-core/src/geometry.rs` | Stroke outlines, hit testing, partial erase, lasso |
+| `crates/scribe-core/src/color.rs` | Colour parsing and dark-mode ink adaptation |
+| `crates/scribe-core/src/table.rs` | HTML / Markdown / TSV / CSV tables in and out |
+| `crates/scribe-core/src/ffi.rs` | The C ABI (header in `crates/scribe-core/include`) |
+| `crates/scribe-icon/` | The icon renderer |
+| `macos/Scribe/App/` | App entry, window state, menus, pasting and inserting |
+| `macos/Scribe/Canvas/` | The scroll view, page surface and ink view (pen input) |
+| `macos/Scribe/Objects/` | Text boxes, rich text, images, equations, tables |
+| `macos/Scribe/Views/` | Sidebar, page list, editor chrome, sheets |
+| `macos/Tests/` | Swift tests |
 
 ## Known gaps
 
-- Search covers page titles and typed text, not handwriting recognition.
-- No page reordering by drag yet; order is held in `section.json`.
+- Search covers page titles, typed text and table cells, not handwriting.
+- Importing straight from OneNote needs the Windows version: OneNote for Mac
+  has no API that exposes ink. Notebooks imported there open here unchanged.
+- No handwriting-to-text conversion yet.
