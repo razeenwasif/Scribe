@@ -1,13 +1,14 @@
 //! Renders the Scribe app icon.
 //!
-//! The mark is a sheet of ruled paper on a terracotta tile, with a cursive
-//! S written across it. The handwriting is built by the app's own
-//! ink engine (`scribe_core::geometry::outline`), with pressure rising on
+//! The mark is a cursive S written in cream ink straight onto a dark, ruled
+//! slate, with a terracotta margin rule and a drop of ink where the nib
+//! lifted: the app's own dark page. The handwriting is built by the app's ink
+//! engine (`scribe_core::geometry::outline`), with pressure rising on
 //! downstrokes the way a real nib behaves, so the icon is a picture of what
 //! Scribe actually draws.
 //!
 //! Usage: scribe-icon <out-dir>
-//! Writes `AppIcon.iconset/` (every size macOS wants) and `preview.png`.
+//! Writes `AppIcon.iconset/` (every size macOS wants) and `AppIcon-preview.png`.
 //! `build.sh` turns the iconset into `AppIcon.icns` with `iconutil`.
 
 use std::f32::consts::PI;
@@ -15,7 +16,7 @@ use std::path::PathBuf;
 
 use scribe_core::geometry::{outline, OutlineOptions};
 use tiny_skia::{
-    Color, FillRule, GradientStop, LinearGradient, Paint, Path, PathBuilder, Pixmap, Point, Rect, Shader,
+    Color, FillRule, GradientStop, LinearGradient, Mask, Paint, Path, PathBuilder, Pixmap, Point,
     SpreadMode, Stroke, Transform,
 };
 
@@ -58,23 +59,6 @@ fn squircle(x: f32, y: f32, size: f32) -> Path {
     pb.finish().unwrap()
 }
 
-fn rounded_rect(r: Rect, radius: f32) -> Path {
-    let mut pb = PathBuilder::new();
-    let (l, t, rt, b) = (r.left(), r.top(), r.right(), r.bottom());
-    let k = 0.5523 * radius;
-    pb.move_to(l + radius, t);
-    pb.line_to(rt - radius, t);
-    pb.cubic_to(rt - radius + k, t, rt, t + radius - k, rt, t + radius);
-    pb.line_to(rt, b - radius);
-    pb.cubic_to(rt, b - radius + k, rt - radius + k, b, rt - radius, b);
-    pb.line_to(l + radius, b);
-    pb.cubic_to(l + radius - k, b, l, b - radius + k, l, b - radius);
-    pb.line_to(l, t + radius);
-    pb.cubic_to(l, t + radius - k, l + radius - k, t, l + radius, t);
-    pb.close();
-    pb.finish().unwrap()
-}
-
 fn polygon(points: &[f64]) -> Option<Path> {
     let mut pb = PathBuilder::new();
     let mut it = points.chunks_exact(2);
@@ -110,7 +94,7 @@ fn spline(ctrl: &[(f32, f32)], per_segment: usize) -> Vec<(f32, f32)> {
 }
 
 /// The handwriting: a cursive capital S that finishes in an underline swash,
-/// in paper-local coordinates. Pressure follows direction, heavy on the way
+/// centred on the origin. Pressure follows direction, heavy on the way
 /// down and light on the way up, as with a real nib.
 fn handwriting(scale: f32, bold: bool) -> Vec<f64> {
     let ctrl = [
@@ -225,85 +209,83 @@ fn render(size: u32, target: u32) -> Pixmap {
     let sh = shadow_layer(size, &tile, base, 0.32, (10.0 * s).round() as usize, 12.0 * s);
     pix.draw_pixmap(0, 0, sh.as_ref(), &Default::default(), Transform::identity(), None);
 
+    // Warm slate, the colour of the app's dark page.
     let mut paint = Paint { anti_alias: true, ..Paint::default() };
     paint.shader = LinearGradient::new(
         Point::from_xy(512.0, TILE_ORIGIN),
         Point::from_xy(512.0, TILE_ORIGIN + TILE),
-        vec![
-            GradientStop::new(0.0, rgb(0xEE9A74)),
-            GradientStop::new(0.55, rgb(0xD06E48)),
-            GradientStop::new(1.0, rgb(0xA9482A)),
-        ],
+        vec![GradientStop::new(0.0, rgb(0x34302C)), GradientStop::new(1.0, rgb(0x151413))],
         SpreadMode::Pad,
         Transform::identity(),
     )
     .unwrap();
     pix.fill_path(&tile, &paint, FillRule::Winding, base, None);
 
-    // A faint top highlight gives the tile some depth.
+    // A faint top sheen gives the tile some depth.
     paint.shader = LinearGradient::new(
         Point::from_xy(512.0, TILE_ORIGIN),
         Point::from_xy(512.0, TILE_ORIGIN + TILE * 0.5),
-        vec![GradientStop::new(0.0, rgba(0xFFFFFF, 0.22)), GradientStop::new(1.0, rgba(0xFFFFFF, 0.0))],
+        vec![GradientStop::new(0.0, rgba(0xFFFFFF, 0.16)), GradientStop::new(1.0, rgba(0xFFFFFF, 0.0))],
         SpreadMode::Pad,
         Transform::identity(),
     )
     .unwrap();
     pix.fill_path(&tile, &paint, FillRule::Winding, base, None);
 
-    // ---- the paper, tilted a few degrees, in paper-local coordinates
-    let paper_w = 520.0;
-    let paper_h = 640.0;
-    let paper_rect = Rect::from_xywh(-paper_w / 2.0, -paper_h / 2.0, paper_w, paper_h).unwrap();
-    let paper = rounded_rect(paper_rect, 34.0);
-    let local = Transform::from_rotate(-7.0).post_translate(512.0, 522.0).post_concat(base);
+    // ---- rules and the margin line, clipped to the tile
+    let mut clip = Mask::new(size, size).unwrap();
+    clip.fill_path(&tile, FillRule::Winding, true, base);
 
-    let sh = shadow_layer(size, &paper, local, 0.38, (16.0 * s).round().max(1.0) as usize, 16.0 * s);
-    pix.draw_pixmap(0, 0, sh.as_ref(), &Default::default(), Transform::identity(), None);
-
-    paint.shader = LinearGradient::new(
-        Point::from_xy(0.0, -paper_h / 2.0),
-        Point::from_xy(0.0, paper_h / 2.0),
-        vec![GradientStop::new(0.0, rgb(0xFFFDF8)), GradientStop::new(1.0, rgb(0xF4EEE2))],
-        SpreadMode::Pad,
-        Transform::identity(),
-    )
-    .unwrap();
-    pix.fill_path(&paper, &paint, FillRule::Winding, local, None);
-
-    // Rules and the margin line, as on a real page.
-    if !tiny {
-        let mut line = Paint { anti_alias: true, ..Paint::default() };
-        line.set_color(rgba(0xC9D3DE, if small { 0.9 } else { 1.0 }));
-        let stroke = Stroke { width: if small { 9.0 } else { 5.0 }, ..Stroke::default() };
-        let gap = if small { 120.0 } else { 74.0 };
-        let mut y = -paper_h / 2.0 + if small { 150.0 } else { 118.0 };
+    if !small {
         let mut pb = PathBuilder::new();
-        while y < paper_h / 2.0 - 40.0 {
-            pb.move_to(-paper_w / 2.0, y);
-            pb.line_to(paper_w / 2.0, y);
-            y += gap;
+        let mut y = 300.0;
+        while y < TILE_ORIGIN + TILE {
+            pb.move_to(TILE_ORIGIN, y);
+            pb.line_to(TILE_ORIGIN + TILE, y);
+            y += 72.0;
         }
-        if let Some(p) = pb.finish() {
-            pix.stroke_path(&p, &line, &stroke, local, None);
-        }
+        let mut line = Paint { anti_alias: true, ..Paint::default() };
+        line.set_color(rgba(0x5A534C, 0.55));
+        pix.stroke_path(&pb.finish().unwrap(), &line, &Stroke { width: 4.0, ..Stroke::default() }, base, Some(&clip));
+    }
 
-        if !small {
-            line.set_color(rgba(0xE08A66, 0.85));
-            let mut pb = PathBuilder::new();
-            pb.move_to(-paper_w / 2.0 + 96.0, -paper_h / 2.0);
-            pb.line_to(-paper_w / 2.0 + 96.0, paper_h / 2.0);
-            pix.stroke_path(&pb.finish().unwrap(), &line, &Stroke { width: 5.0, ..Stroke::default() }, local, None);
-        }
+    if !tiny {
+        let mut pb = PathBuilder::new();
+        pb.move_to(300.0, TILE_ORIGIN);
+        pb.line_to(300.0, TILE_ORIGIN + TILE);
+        let mut margin = Paint { anti_alias: true, ..Paint::default() };
+        margin.set_color(rgba(0xE08A66, if small { 0.9 } else { 0.7 }));
+        let width = if small { 12.0 } else { 5.0 };
+        pix.stroke_path(&pb.finish().unwrap(), &margin, &Stroke { width, ..Stroke::default() }, base, Some(&clip));
     }
 
     // ---- handwriting, through the real ink engine
-    let ink_width = if tiny { 58.0 } else if small { 46.0 } else { 34.0 };
+    let ink_width = if tiny { 66.0 } else if small { 54.0 } else { 40.0 };
     let pts = handwriting(1.0, small);
     let poly = outline(&pts, OutlineOptions { width: ink_width, pressure_sensitive: true, fit: true, taper: true });
+    let place = Transform::from_scale(1.12, 1.12).post_translate(520.0, 500.0).post_concat(base);
     if let Some(ink) = polygon(&poly) {
-        let p = Paint { anti_alias: true, shader: Shader::SolidColor(rgb(0x1F1A17)), ..Paint::default() };
-        pix.fill_path(&ink, &p, FillRule::Winding, local, None);
+        let p = Paint {
+            anti_alias: true,
+            shader: LinearGradient::new(
+                Point::from_xy(0.0, -260.0),
+                Point::from_xy(0.0, 240.0),
+                vec![GradientStop::new(0.0, rgb(0xFFF4E4)), GradientStop::new(1.0, rgb(0xE9D9C2))],
+                SpreadMode::Pad,
+                Transform::identity(),
+            )
+            .unwrap(),
+            ..Paint::default()
+        };
+        pix.fill_path(&ink, &p, FillRule::Winding, place, None);
+    }
+
+    // A drop of terracotta ink where the nib lifted.
+    if !tiny {
+        let mut drop = Paint { anti_alias: true, ..Paint::default() };
+        drop.set_color(rgb(0xE08A66));
+        let r = if small { 24.0 } else { 15.0 };
+        pix.fill_path(&PathBuilder::from_circle(770.0, 610.0, r).unwrap(), &drop, FillRule::Winding, base, None);
     }
 
     pix

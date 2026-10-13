@@ -29,7 +29,7 @@ history (commit `49a6b5f`).
 - [x] Page reordering by drag, moving pages between sections
 - [x] Deletes go to the Trash
 - [x] Search also covers table cells
-- [x] Redesigned app icon, drawn by the Rust ink engine (`crates/scribe-icon`)
+- [x] Redesigned app icon (cursive S on a dark ruled slate), drawn by the Rust ink engine (`crates/scribe-icon`)
 
 ### Not carried over
 - [ ] OneNote import (needs OneNote's Windows COM API; use the Windows build, then open the folder here)
