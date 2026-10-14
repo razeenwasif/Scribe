@@ -31,18 +31,6 @@ enum ToolKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var symbol: String {
-        switch self {
-        case .pen: "pencil.tip"
-        case .highlighter: "highlighter"
-        case .strokeEraser: "eraser"
-        case .pointEraser: "eraser.line.dashed"
-        case .select: "lasso"
-        case .text: "character.cursor.ibeam"
-        case .pan: "hand.raised"
-        }
-    }
-
     var shortcut: Character? {
         switch self {
         case .pen: "p"
@@ -55,27 +43,43 @@ enum ToolKind: String, CaseIterable, Identifiable {
     }
 }
 
-/// One entry in the pen tray. As in OneNote, a pen is a saved combination of
-/// colour and thickness rather than two separate settings.
-struct Pen: Identifiable, Equatable {
+/// A named ink colour. `hex` is what is stored in the page; the app paints
+/// it adapted for the dark page (black ink shows as warm cream).
+struct InkColor: Identifiable, Equatable {
     var name: String
-    var highlighter: Bool
+    var hex: String
+    var id: String { hex }
+
+    /// Distinguishable on the dark page and for the common forms of colour
+    /// blindness (no red/green-only pairing).
+    static let inks: [InkColor] = [
+        InkColor(name: "Black", hex: "#1A1A1A"),
+        InkColor(name: "Blue", hex: "#1D4ED8"),
+        InkColor(name: "Rose", hex: "#C02848"),
+        InkColor(name: "Sage", hex: "#157F3C"),
+        InkColor(name: "Lavender", hex: "#6D3FD1"),
+        InkColor(name: "Amber", hex: "#B7791F"),
+        InkColor(name: "Clay", hex: "#B85C3B"),
+    ]
+
+    static let highlights: [InkColor] = [
+        InkColor(name: "Yellow", hex: "#FFE03D"),
+        InkColor(name: "Green", hex: "#8CE99B"),
+        InkColor(name: "Pink", hex: "#FF9EC7"),
+        InkColor(name: "Sky", hex: "#8FD3FF"),
+    ]
+}
+
+/// The pen or the highlighter as currently set up.
+struct Pen: Equatable {
     var color: String
     /// Nib width at full pressure, in page units.
     var width: Double
+    var pressureSensitive: Bool
+    var highlighter: Bool
 
-    var id: String { name }
-    var pressureSensitive: Bool { !highlighter }
+    static let defaultPen = Pen(color: "#1A1A1A", width: 2.4, pressureSensitive: true, highlighter: false)
+    static let defaultHighlighter = Pen(color: "#FFE03D", width: 16, pressureSensitive: false, highlighter: true)
 
-    /// Colours stay legible on the ruled background and remain
-    /// distinguishable for the common forms of colour blindness.
-    static let tray: [Pen] = [
-        Pen(name: "Ink black", highlighter: false, color: "#1A1A1A", width: 2.4),
-        Pen(name: "Blue", highlighter: false, color: "#1D4ED8", width: 2.4),
-        Pen(name: "Red", highlighter: false, color: "#C02828", width: 2.4),
-        Pen(name: "Green", highlighter: false, color: "#157F3C", width: 2.4),
-        Pen(name: "Fine black", highlighter: false, color: "#1A1A1A", width: 1.2),
-        Pen(name: "Yellow highlighter", highlighter: true, color: "#FFE03D", width: 16),
-        Pen(name: "Green highlighter", highlighter: true, color: "#8CE99B", width: 16),
-    ]
+    var widthRange: ClosedRange<Double> { highlighter ? 4...40 : 0.5...12 }
 }

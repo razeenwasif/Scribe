@@ -24,8 +24,9 @@ done
 # Keep Rust output inside the repo regardless of any global CARGO_TARGET_DIR,
 # because Package.swift links target/release/libscribe_core.a from here.
 export CARGO_TARGET_DIR="$ROOT/target"
-# Match the app's deployment target so the linker does not warn.
-export MACOSX_DEPLOYMENT_TARGET=15.0
+# The app's deployment target. Applied to the Swift build only: exporting it
+# for cargo makes the current Apple linker emit broken proc-macro dylibs.
+DEPLOYMENT_TARGET=15.0
 
 if [[ $RUN_TESTS == 1 ]]; then
   echo "==> Testing the Rust core"
@@ -42,12 +43,12 @@ rm -rf macos/Resources/AppIcon.iconset
 
 if [[ $RUN_TESTS == 1 ]]; then
   echo "==> Testing the app"
-  swift test
+  MACOSX_DEPLOYMENT_TARGET=$DEPLOYMENT_TARGET swift test
 fi
 
 echo "==> Building the app"
-swift build -c release --arch arm64
-BIN="$(swift build -c release --arch arm64 --show-bin-path)"
+MACOSX_DEPLOYMENT_TARGET=$DEPLOYMENT_TARGET swift build -c release --arch arm64
+BIN="$(MACOSX_DEPLOYMENT_TARGET=$DEPLOYMENT_TARGET swift build -c release --arch arm64 --show-bin-path)"
 
 echo "==> Assembling Scribe.app"
 APP="$OUT_DIR/Scribe.app"

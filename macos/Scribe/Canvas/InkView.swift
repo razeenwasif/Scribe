@@ -91,10 +91,19 @@ final class InkView: NSView {
     // -------------------------------------------------------------- hit test
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let page, tool == .text, !spacePan else { return super.hitTest(point) }
+        guard let page, !spacePan else { return super.hitTest(point) }
         let p = convert(point, from: superview)
-        // Over an object: let it handle the click so it can be edited.
-        if page.allObjects.contains(where: { $0.frame.insetBy(dx: -4, dy: -4).contains(p) }) { return nil }
+        switch tool {
+        case .text:
+            // Over an object or its grip and pills: let it handle the click
+            // so it can be edited.
+            if page.allObjects.contains(where: { $0.hitFrame.contains(p) }) { return nil }
+        case .select:
+            // The selection's action pill lives in the object layer below.
+            if let pill = page.selectionPillFrame, pill.contains(p) { return nil }
+        default:
+            break
+        }
         return super.hitTest(point)
     }
 
@@ -153,6 +162,8 @@ final class InkView: NSView {
         guard let page, let app else { return }
         window?.makeFirstResponder(self)
         let (p, pressure) = sample(event)
+        app.trayOpen = false
+        app.insertOpen = false
 
         switch effectiveTool(event) {
         case .pen, .highlighter:
@@ -379,10 +390,13 @@ final class InkView: NSView {
 
     // ------------------------------------------------------------ selection
 
-    private var handleSize: CGFloat { 10 / scale }
+    private var handleSize: CGFloat { 16 / scale }
 
+    /// Sits on the corner of the rounded selection outline.
     private func resizeHandle(for r: CGRect) -> CGRect {
-        CGRect(x: r.maxX - handleSize / 2, y: r.maxY - handleSize / 2, width: handleSize, height: handleSize)
+        let inset = 10 - 20 * (1 - 1 / CGFloat(2).squareRoot())
+        let corner = CGPoint(x: r.maxX + inset, y: r.maxY + inset)
+        return CGRect(x: corner.x - handleSize / 2, y: corner.y - handleSize / 2, width: handleSize, height: handleSize)
     }
 
     private func beginSelect(at p: CGPoint, event: NSEvent) {
@@ -542,7 +556,9 @@ final class InkView: NSView {
             ctx.saveGState()
             ctx.addLines(between: points)
             ctx.setStrokeColor(accent.cgColor)
-            ctx.setLineWidth(1.25 / scale)
+            ctx.setLineWidth(1.5 / scale)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
             ctx.setLineDash(phase: 0, lengths: [5 / scale, 4 / scale])
             ctx.strokePath()
             ctx.restoreGState()
@@ -562,23 +578,33 @@ final class InkView: NSView {
         guard page.hasSelection, let bounds = page.selectionBounds else { return }
 
         ctx.saveGState()
-        // A soft wash over selected ink makes it obvious what will move.
+        // A soft tint over selected ink makes it obvious what will move.
         ctx.setFillColor(accent.withAlphaComponent(0.35).cgColor)
         for s in page.selectedStrokeList {
             ctx.addPath(s.path)
             ctx.fillPath(using: .winding)
         }
 
-        let r = bounds.insetBy(dx: -4, dy: -4)
+        // Soft, rounded bounds: a faint wash and a dashed edge, no hard box.
+        let r = bounds.insetBy(dx: -10, dy: -10)
+        let shape = CGPath(roundedRect: r, cornerWidth: 20, cornerHeight: 20, transform: nil)
+        ctx.addPath(shape)
+        ctx.setFillColor(accent.withAlphaComponent(0.07).cgColor)
+        ctx.fillPath()
+        ctx.addPath(shape)
         ctx.setStrokeColor(accent.cgColor)
-        ctx.setLineWidth(1 / scale)
-        ctx.setLineDash(phase: 0, lengths: [4 / scale, 3 / scale])
-        ctx.stroke(r)
+        ctx.setLineWidth(1.5 / scale)
+        ctx.setLineCap(.round)
+        ctx.setLineDash(phase: 0, lengths: [5 / scale, 4 / scale])
+        ctx.strokePath()
 
+        // A round resize handle, ringed in the page colour so it floats.
         ctx.setLineDash(phase: 0, lengths: [])
         let h = resizeHandle(for: bounds)
+        ctx.setFillColor(Palette.of(dark: dark).page.cgColor)
+        ctx.fillEllipse(in: h.insetBy(dx: -4 / scale, dy: -4 / scale))
         ctx.setFillColor(accent.cgColor)
-        ctx.fill(h)
+        ctx.fillEllipse(in: h)
         ctx.restoreGState()
     }
 }

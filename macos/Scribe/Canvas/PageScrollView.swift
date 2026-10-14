@@ -8,8 +8,9 @@ final class PageScrollView: NSScrollView {
     static let pageMargin: CGFloat = 36
 
     let surface: PageSurfaceView
+    let pageShadow = PageShadowView()
     let inkView: InkView
-    let objectsHost: NSHostingView<ObjectsLayer>
+    let objectsHost: ZoomAwareHostingView<ObjectsLayer>
 
     private(set) weak var app: AppModel?
     private(set) var page: PageModel
@@ -19,7 +20,7 @@ final class PageScrollView: NSScrollView {
         self.page = page
         surface = PageSurfaceView(frame: CGRect(origin: .zero, size: page.pageSize))
         inkView = InkView(frame: CGRect(origin: .zero, size: page.pageSize))
-        objectsHost = NSHostingView(rootView: ObjectsLayer(app: app, page: page))
+        objectsHost = ZoomAwareHostingView(rootView: ObjectsLayer(app: app, page: page))
         super.init(frame: .zero)
 
         contentView = CenteringClipView()
@@ -37,6 +38,7 @@ final class PageScrollView: NSScrollView {
             width: page.pageSize.width + Self.pageMargin * 2,
             height: page.pageSize.height + Self.pageMargin * 2))
         documentView = doc
+        doc.addSubview(pageShadow)
         doc.addSubview(surface)
 
         objectsHost.sizingOptions = []
@@ -52,7 +54,7 @@ final class PageScrollView: NSScrollView {
         apply(app: app, page: page)
 
         NotificationCenter.default.addObserver(
-            self, selector: #selector(magnificationChanged), name: NSScrollView.didEndLiveMagnifyNotification, object: self)
+            self, selector: #selector(liveMagnifyEnded), name: NSScrollView.didEndLiveMagnifyNotification, object: self)
     }
 
     @available(*, unavailable)
@@ -65,7 +67,9 @@ final class PageScrollView: NSScrollView {
             page = newPage
             objectsHost.rootView = ObjectsLayer(app: app, page: newPage)
             inkView.attach(app: app, page: newPage)
+            autoFit = true
             scrollToTop()
+            takeFocus()
         }
 
         let palette = Palette.of(dark: app.dark)
@@ -81,6 +85,8 @@ final class PageScrollView: NSScrollView {
         } else if surface.frame.origin.x != Self.pageMargin {
             surface.setFrameOrigin(CGPoint(x: Self.pageMargin, y: Self.pageMargin))
         }
+        if pageShadow.frame != surface.frame { pageShadow.frame = surface.frame }
+        applyFit()
 
         inkView.toolChanged()
         surface.needsDisplay = true
@@ -99,7 +105,39 @@ final class PageScrollView: NSScrollView {
         reflectScrolledClipView(contentView)
     }
 
+    /// Puts the keyboard on the page, so tool keys work straight away
+    /// rather than typing into whatever field the window focused first.
+    func takeFocus() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            if !(window.firstResponder is ScribeTextView) { window.makeFirstResponder(self.inkView) }
+        }
+    }
+
     // ----------------------------------------------------------------- zoom
+
+    /// The page follows the pane: shown whole and centred, zoomed out only as
+    /// far as it must be to fit beside open panels, and never past 100%. Any
+    /// manual zoom turns this off until Fit Page Width or another page.
+    private(set) var autoFit = true
+
+    override func tile() {
+        super.tile()
+        applyFit()
+    }
+
+    private func applyFit() {
+        guard autoFit, contentView.frame.width > 80 else { return }
+        let docWidth = page.pageSize.width + Self.pageMargin * 2
+        let target = min(1, contentView.frame.width / docWidth).clamped(minMagnification, maxMagnification)
+        guard abs(target - magnification) > 0.002 else { return }
+        let top = contentView.bounds.minY
+        magnification = target
+        contentView.scroll(to: contentView.constrainBoundsRect(CGRect(x: 0, y: top, width: contentView.bounds.width,
+                                                                      height: contentView.bounds.height)).origin)
+        reflectScrolledClipView(contentView)
+        magnificationChanged()
+    }
 
     override func scrollWheel(with event: NSEvent) {
         // ⌘ or ⌃ with the wheel zooms about the pointer, as in most editors.
@@ -107,6 +145,7 @@ final class PageScrollView: NSScrollView {
             let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY * 0.01 : event.scrollingDeltaY * 0.08
             let target = (magnification * (1 + delta)).clamped(minMagnification, maxMagnification)
             let center = contentView.convert(event.locationInWindow, from: nil)
+            autoFit = false
             setMagnification(target, centeredAt: center)
             magnificationChanged()
             return
@@ -116,20 +155,27 @@ final class PageScrollView: NSScrollView {
 
     func zoom(by factor: CGFloat) {
         let center = CGPoint(x: contentView.bounds.midX, y: contentView.bounds.midY)
+        autoFit = false
         setMagnification((magnification * factor).clamped(minMagnification, maxMagnification), centeredAt: center)
         magnificationChanged()
     }
 
     func zoomToActualSize() {
         let center = CGPoint(x: contentView.bounds.midX, y: contentView.bounds.midY)
+        autoFit = false
         setMagnification(1, centeredAt: center)
         magnificationChanged()
     }
 
-    /// Fits the page width to the window.
+    /// Back to following the pane: the whole page width, centred.
     func zoomToFit() {
-        let target = (contentView.frame.width / (page.pageSize.width + Self.pageMargin * 2)).clamped(minMagnification, maxMagnification)
-        magnification = target
+        autoFit = true
+        applyFit()
+        reconstrain()
+    }
+
+    @objc private func liveMagnifyEnded() {
+        autoFit = false
         magnificationChanged()
     }
 
@@ -147,7 +193,64 @@ final class PageScrollView: NSScrollView {
     }
 }
 
-/// Keeps the page centred when it is narrower than the window.
+/// A hosting view that still gets clicks right when the page is zoomed.
+///
+/// Inside the magnified scroll view, AppKit draws SwiftUI content at the
+/// zoomed size, but SwiftUI places its controls as if at 100%, measured from
+/// the view's top-left corner. Left alone, a click on a pill or a table cell
+/// lands on whatever SwiftUI thinks is there at unzoomed scale. Mouse events
+/// and hit tests for SwiftUI content are re-expressed in those terms; native
+/// AppKit subviews (the text boxes) keep the real coordinates.
+final class ZoomAwareHostingView<Content: View>: NSHostingView<Content> {
+    /// The window point SwiftUI expects for a point in this view.
+    private func swiftUIWindowPoint(forLocal local: NSPoint) -> NSPoint {
+        let topLeft = convert(NSPoint.zero, to: nil)
+        return isFlipped
+            ? NSPoint(x: topLeft.x + local.x, y: topLeft.y - local.y)
+            : NSPoint(x: topLeft.x + local.x, y: topLeft.y + local.y)
+    }
+
+    private var zoomed: Bool {
+        abs(convert(NSSize(width: 1, height: 1), to: nil).width - 1) > 0.001
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard zoomed, let superview else { return super.hitTest(point) }
+        let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        // Native views first, in true coordinates.
+        for sub in subviews.reversed() where !sub.isHidden {
+            if let hit = sub.hitTest(local) { return hit }
+        }
+        let window = swiftUIWindowPoint(forLocal: local)
+        return super.hitTest(superview.convert(window, from: nil))
+    }
+
+    private func remapped(_ e: NSEvent) -> NSEvent {
+        guard zoomed else { return e }
+        let local = convert(e.locationInWindow, from: nil)
+        return NSEvent.mouseEvent(
+            with: e.type, location: swiftUIWindowPoint(forLocal: local), modifierFlags: e.modifierFlags,
+            timestamp: e.timestamp, windowNumber: e.windowNumber, context: nil,
+            eventNumber: e.eventNumber, clickCount: e.clickCount, pressure: e.pressure
+        ) ?? e
+    }
+
+    override func mouseDown(with e: NSEvent) { super.mouseDown(with: remapped(e)) }
+    override func mouseDragged(with e: NSEvent) { super.mouseDragged(with: remapped(e)) }
+    override func mouseUp(with e: NSEvent) { super.mouseUp(with: remapped(e)) }
+    override func mouseMoved(with e: NSEvent) { super.mouseMoved(with: remapped(e)) }
+    override func rightMouseDown(with e: NSEvent) { super.rightMouseDown(with: remapped(e)) }
+    override func rightMouseDragged(with e: NSEvent) { super.rightMouseDragged(with: remapped(e)) }
+    override func rightMouseUp(with e: NSEvent) { super.rightMouseUp(with: remapped(e)) }
+    override func otherMouseDown(with e: NSEvent) { super.otherMouseDown(with: remapped(e)) }
+    override func otherMouseDragged(with e: NSEvent) { super.otherMouseDragged(with: remapped(e)) }
+    override func otherMouseUp(with e: NSEvent) { super.otherMouseUp(with: remapped(e)) }
+    override func menu(for event: NSEvent) -> NSMenu? { super.menu(for: remapped(event)) }
+}
+
+/// Keeps the page centred left to right when it is narrower than the pane,
+/// and pinned to the top, as paper on a desk would be.
 final class CenteringClipView: NSClipView {
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposedBounds)
@@ -156,7 +259,7 @@ final class CenteringClipView: NSClipView {
             rect.origin.x = (doc.frame.width - rect.width) / 2
         }
         if rect.height > doc.frame.height {
-            rect.origin.y = (doc.frame.height - rect.height) / 2
+            rect.origin.y = 0
         }
         return rect
     }
@@ -168,17 +271,41 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// The sheet of paper: fill, rule lines, and a soft shadow.
+/// The soft shadow under the page, kept apart from the page itself so the
+/// page can clip its corners while the shadow spills out around them.
+final class PageShadowView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.75
+        layer?.shadowRadius = 38
+        layer?.shadowOffset = CGSize(width: 0, height: -22)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        // An explicit path spares the compositor from deriving the shadow
+        // from pixels on every frame.
+        layer?.shadowPath = CGPath(roundedRect: bounds.insetBy(dx: 18, dy: 10), cornerWidth: Velvet.Radius.page,
+                                   cornerHeight: Velvet.Radius.page, transform: nil)
+    }
+}
+
+/// The sheet of paper: a rounded velvet surface with its rules.
 ///
 /// Rules are drawn in page coordinates rather than tiled, so the spacing
 /// stays locked to the page at every zoom and handwriting keeps sitting on
 /// the same line.
 final class PageSurfaceView: NSView {
     var palette = Palette.dark {
-        didSet {
-            applyChrome()
-            needsDisplay = true
-        }
+        didSet { needsDisplay = true }
     }
 
     var background = BackgroundDTO() {
@@ -188,8 +315,10 @@ final class PageSurfaceView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.masksToBounds = false
-        applyChrome()
+        // No sharp corners, on the page or on anything that reaches its edge.
+        layer?.cornerRadius = Velvet.Radius.page
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
     }
 
     @available(*, unavailable)
@@ -197,26 +326,15 @@ final class PageSurfaceView: NSView {
 
     override var isFlipped: Bool { true }
 
-    private func applyChrome() {
-        guard let layer else { return }
-        layer.shadowColor = palette.shadow.cgColor
-        layer.shadowOpacity = palette.shadowOpacity
-        layer.shadowRadius = 14
-        layer.shadowOffset = CGSize(width: 0, height: -4)
-        layer.borderColor = palette.pageBorder.cgColor
-        layer.borderWidth = 1
-    }
-
-    override func layout() {
-        super.layout()
-        // An explicit path spares the compositor from deriving the shadow
-        // from the page's pixels on every frame.
-        layer?.shadowPath = CGPath(rect: bounds, transform: nil)
-    }
-
     override func draw(_ dirtyRect: NSRect) {
         palette.page.setFill()
         dirtyRect.fill()
+
+        // The faint light along the top edge that every velvet surface has.
+        if dirtyRect.minY < 2 {
+            palette.pageBorder.setFill()
+            CGRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+        }
 
         let kind = background.kind.lowercased()
         guard kind != "blank" else { return }
@@ -259,13 +377,19 @@ final class PageSurfaceView: NSView {
                 lines.move(to: CGPoint(x: x, y: dirtyRect.minY))
                 lines.line(to: CGPoint(x: x, y: dirtyRect.maxY))
             }
-        } else if kind == "ruled" {
-            // The margin rule, as on paper.
-            let x = spacing * 3
-            lines.move(to: CGPoint(x: x, y: dirtyRect.minY))
-            lines.line(to: CGPoint(x: x, y: dirtyRect.maxY))
         }
         lines.stroke()
+
+        if kind == "ruled" {
+            // The margin rule, as on paper, in a soft accent.
+            let x = spacing * 3
+            let margin = NSBezierPath()
+            margin.lineWidth = 1
+            margin.move(to: CGPoint(x: x, y: dirtyRect.minY))
+            margin.line(to: CGPoint(x: x, y: dirtyRect.maxY))
+            palette.marginRule.setStroke()
+            margin.stroke()
+        }
     }
 }
 
@@ -281,6 +405,7 @@ struct PageCanvas: NSViewRepresentable {
     func makeNSView(context: Context) -> PageScrollView {
         let view = PageScrollView(app: app, page: page)
         app.canvas = view
+        view.takeFocus()
         return view
     }
 

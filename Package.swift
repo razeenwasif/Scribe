@@ -23,6 +23,7 @@ let package = Package(
             name: "Scribe",
             dependencies: ["CScribeCore", "SwiftMath"],
             path: "macos/Scribe",
+            resources: [.copy("Resources/Fonts")],
             linkerSettings: [.unsafeFlags(["-L", "\(root)/target/release"])]
         ),
         .testTarget(

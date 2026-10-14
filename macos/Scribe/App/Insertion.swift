@@ -17,10 +17,10 @@ extension AppModel {
 
     private var insertionPoint: CGPoint { canvas?.visiblePageCenter ?? CGPoint(x: 120, y: 120) }
 
-    func copySelection() {
-        guard let page, page.hasSelection else { return }
+    private func selectionFragment() -> Fragment? {
+        guard let page, page.hasSelection else { return nil }
         let objects = page.selectedObjectList
-        let fragment = Fragment(
+        return Fragment(
             sectionPath: page.sectionPath,
             strokes: page.selectedStrokeList.map(\.dto),
             textBoxes: objects.compactMap { ($0 as? TextBoxItem)?.dto },
@@ -28,6 +28,16 @@ extension AppModel {
             latexBlocks: objects.compactMap { ($0 as? LatexItem)?.dto },
             tables: objects.compactMap { ($0 as? TableItem)?.dto }
         )
+    }
+
+    /// Copies the selection and pastes it just beside itself, in one step.
+    func duplicateSelection() {
+        guard let page, let fragment = selectionFragment() else { return }
+        paste(fragment, into: page)
+    }
+
+    func copySelection() {
+        guard let fragment = selectionFragment() else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()

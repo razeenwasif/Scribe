@@ -22,7 +22,7 @@ enum ScribeFonts {
     }
 
     static let choices: [Choice] = [
-        Choice(name: "Segoe UI", label: "System"),
+        Choice(name: "Segoe UI", label: "Rounded"),
         Choice(name: "Handwritten", label: "Handwritten"),
         Choice(name: "Georgia", label: "Georgia"),
         Choice(name: "Cascadia Code", label: "Monospace"),
@@ -52,7 +52,9 @@ enum ScribeFonts {
         var font: NSFont
         switch canonical(family) {
         case "Segoe UI":
-            font = .systemFont(ofSize: size)
+            // The system face in its rounded cut, to match the velvet UI.
+            let plain = NSFont.systemFont(ofSize: size)
+            font = plain.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? plain
         case "Handwritten":
             font = NSFont(name: bold ? "Noteworthy-Bold" : "Noteworthy-Light", size: size)
                 ?? NSFont(name: "Bradley Hand", size: size)
@@ -116,8 +118,12 @@ struct TextStyle: Equatable {
     func attributes(dark: Bool) -> [NSAttributedString.Key: Any] {
         let para = NSMutableParagraphStyle()
         para.lineHeightMultiple = 1.12
+        let font = ScribeFonts.font(family: family, size: size, bold: bold, italic: italic)
+        // Some faces (SF Rounded among them) have no italic; slant instead.
+        let slant = italic && !font.fontDescriptor.symbolicTraits.contains(.italic) ? 0.2 : 0
         return [
-            .font: ScribeFonts.font(family: family, size: size, bold: bold, italic: italic),
+            .obliqueness: slant,
+            .font: font,
             .foregroundColor: InkPaint.color(hex: color, highlighter: false, dark: dark),
             .underlineStyle: underline ? NSUnderlineStyle.single.rawValue : 0,
             .strikethroughStyle: strikethrough ? NSUnderlineStyle.single.rawValue : 0,
@@ -194,6 +200,8 @@ enum RichText {
 /// What the formatting bar shows for the current selection.
 struct TextFormatState: Equatable {
     var active = false
+    /// The text box being edited.
+    var itemID: String?
     var bold = false
     var italic = false
     var underline = false
@@ -260,6 +268,12 @@ final class ScribeTextView: NSTextView {
         pasteAsPlainText(sender)
     }
 
+    /// Escape ends editing and hands the keyboard back to the page, so the
+    /// tool keys work again.
+    override func cancelOperation(_ sender: Any?) {
+        window?.makeFirstResponder(app?.canvas?.inkView)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok {
@@ -293,7 +307,7 @@ final class ScribeTextView: NSTextView {
             : typingAttributes
         let st = TextStyle(attributes: attrs, fallback: base)
         app.textFormat = TextFormatState(
-            active: true, bold: st.bold, italic: st.italic, underline: st.underline, strikethrough: st.strikethrough,
+            active: true, itemID: item.dto.id, bold: st.bold, italic: st.italic, underline: st.underline, strikethrough: st.strikethrough,
             family: st.family, size: st.size, heading: item.dto.heading ?? "body", color: st.color
         )
     }

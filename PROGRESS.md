@@ -31,6 +31,17 @@ history (commit `49a6b5f`).
 - [x] Search also covers table cells
 - [x] Redesigned app icon (cursive S on a dark ruled slate), drawn by the Rust ink engine (`crates/scribe-icon`)
 
+### Velvet dark interface
+- [x] Three rounded panels on a dark ground; no hard edges or sharp corners
+- [x] Collapsible notebooks sidebar (icon rail) and page list, remembered between launches
+- [x] Page centred in its pane, zoomed to fit beside open panels
+- [x] Focus mode; automatic rail in narrow windows
+- [x] Floating dock with pen tray (live preview stroke) and Insert menu
+- [x] Format pill above the text being edited; action pill above a lasso selection
+- [x] Fraunces (soft) page titles, SF Pro Rounded interface
+- [x] Black ink painted warm cream; dark theme only
+- [x] Clicks on on-page controls land correctly at any zoom
+
 ### Not carried over
 - [ ] OneNote import (needs OneNote's Windows COM API; use the Windows build, then open the folder here)
 - [ ] Touch-specific palm rejection (no touchscreens on the Mac)

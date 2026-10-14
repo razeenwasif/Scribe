@@ -10,10 +10,17 @@ import Observation
 /// so ⌘Z walks back through ink and text in the order they happened.
 @Observable
 final class PageModel {
-    static let defaultSize = CGSize(width: 1180, height: 1620)
+    /// A portrait sheet (A4 proportions) that sits whole and centred in the
+    /// main pane beside the open panels.
+    static let defaultSize = CGSize(width: 840, height: 1188)
 
-    /// Blank space kept below and right of the furthest content.
+    /// Blank space kept below the lowest content, so there is always room to
+    /// keep writing.
     static let growthMargin: CGFloat = 600
+
+    /// Room kept right of the widest content. Smaller than below: the page
+    /// widens as you write towards its edge rather than starting out wide.
+    static let sideMargin: CGFloat = 120
 
     private(set) var path: String
     let sectionPath: String
@@ -311,6 +318,20 @@ final class PageModel {
         onInkInvalidated?(nil)
     }
 
+    /// Recolours the selected ink (highlighters keep theirs) as one step.
+    func recolorSelection(_ hex: String) {
+        guard !selectedStrokes.isEmpty else { return }
+        let before = captureSelectionGeometry()
+        for s in selectedStrokeList where !s.dto.highlighter { s.dto.color = hex }
+        commitGeometry(from: before, name: "Recolour")
+    }
+
+    /// Where the selection's action pill floats, just above the selection.
+    var selectionPillFrame: CGRect? {
+        guard hasSelection, let b = selectionBounds else { return nil }
+        return CGRect(x: max(0, b.minX), y: max(0, b.minY - 66), width: 430, height: 46)
+    }
+
     func commitGeometry(from before: GeometrySnapshot, name: String) {
         let after = captureSelectionGeometry()
         registerUndo(name, undo: { [self] in restore(before) }, redo: { [self] in restore(after) })
@@ -358,8 +379,8 @@ final class PageModel {
     /// while open, so the view does not jump under the pen.
     func recomputeSize() {
         var extent = CGRect(origin: .zero, size: Self.defaultSize)
-        for s in strokes { extent = extent.union(s.bounds.insetBy(dx: -Self.growthMargin, dy: -Self.growthMargin)) }
-        for o in allObjects { extent = extent.union(o.frame.insetBy(dx: -Self.growthMargin, dy: -Self.growthMargin)) }
+        for s in strokes { extent = extent.union(s.bounds.insetBy(dx: -Self.sideMargin, dy: -Self.growthMargin)) }
+        for o in allObjects { extent = extent.union(o.frame.insetBy(dx: -Self.sideMargin, dy: -Self.growthMargin)) }
 
         let size = CGSize(width: max(pageSize.width, ceil(extent.maxX)), height: max(pageSize.height, ceil(extent.maxY)))
         if size != pageSize { pageSize = size }

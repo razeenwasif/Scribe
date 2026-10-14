@@ -1,92 +1,121 @@
 import SwiftUI
 
-/// The open page: title, tool strip, formatting bar and canvas.
+/// The open page: a header, the canvas, and the floating dock.
 struct EditorView: View {
     @Bindable var app: AppModel
+    /// Narrow window: the rail holds the window's traffic lights.
+    var reserveLights = false
+
     @Environment(\.undoManager) private var undoManager
-    /// Bumped whenever the undo stack changes, which SwiftUI cannot observe.
-    @State private var historyTick = 0
 
     var body: some View {
         Group {
             if let page = app.page {
                 VStack(spacing: 0) {
-                    PageHeader(app: app, page: page)
-                    ToolStrip(app: app, page: page)
-                    if app.tool == .text {
-                        FormatBar(app: app)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                    if app.focusMode {
+                        SlimHeader(app: app, page: page, undoManager: undoManager)
+                    } else {
+                        PageHeader(app: app, page: page, undoManager: undoManager)
                     }
-                    PageCanvas(app: app, page: page)
-                        .id(ObjectIdentifier(page))
+                    ZStack(alignment: .bottom) {
+                        PageCanvas(app: app, page: page)
+                            .id(ObjectIdentifier(page))
+
+                        // The dock stays centred; the zoom pill keeps to the
+                        // right and steps aside when the pane is too narrow
+                        // for both.
+                        ViewThatFits(in: .horizontal) {
+                            bottomBar(page, zoom: true)
+                            bottomBar(page, zoom: false)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 22)
+                        .animation(.spring(duration: 0.3, bounce: 0.15), value: app.trayOpen)
+                        .animation(.spring(duration: 0.3, bounce: 0.15), value: app.insertOpen)
+                    }
                 }
-                .animation(.easeOut(duration: 0.15), value: app.tool == .text)
                 .onAppear { page.undoManager = undoManager }
-                .onChange(of: ObjectIdentifier(page)) {
-                    page.undoManager = undoManager
-                }
+                .onChange(of: ObjectIdentifier(page)) { page.undoManager = undoManager }
             } else {
-                ContentUnavailableView {
-                    Label("No Page Open", systemImage: "pencil.and.scribble")
-                } description: {
-                    Text("Pick a page, or make a new one.")
-                } actions: {
-                    Button("New Page") { app.newPage() }
-                        .keyboardShortcut("n")
-                }
+                emptyEditor
             }
         }
-        .background(Color(nsColor: Palette.of(dark: app.dark).backdrop))
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in historyTick += 1 }
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in historyTick += 1 }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button { undoManager?.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                    .disabled(historyTick < 0 || !(undoManager?.canUndo ?? false))
-                    .help("Undo (⌘Z)")
-                Button { undoManager?.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
-                    .disabled(!(undoManager?.canRedo ?? false))
-                    .help("Redo (⇧⌘Z)")
-                Button { app.dark.toggle() } label: {
-                    // The icon shows what you will get, not what you have.
-                    Label(app.dark ? "Light Page" : "Dark Page", systemImage: app.dark ? "sun.max" : "moon")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .velvetPanel(Velvet.editor, light: 0.03)
+        .clipShape(RoundedRectangle(cornerRadius: Velvet.Radius.panel, style: .continuous))
+    }
+
+    private func bottomBar(_ page: PageModel, zoom: Bool) -> some View {
+        HStack(alignment: .bottom, spacing: 12) {
+            if zoom { Color.clear.frame(width: Self.zoomWidth, height: 1) }
+            Spacer(minLength: 0)
+            VStack(spacing: 14) {
+                if app.trayOpen && app.tool.isInk {
+                    PenTray(app: app)
+                        .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity))
                 }
-                .help(app.dark ? "Switch to light" : "Switch to dark")
+                if app.insertOpen {
+                    InsertMenu(app: app, page: page)
+                        .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity))
+                }
+                Dock(app: app)
+            }
+            .fixedSize()
+            Spacer(minLength: 0)
+            if zoom {
+                ZoomPill(app: app)
+                    .fixedSize()
+                    .frame(width: Self.zoomWidth, alignment: .trailing)
+                    .padding(.bottom, 8)
             }
         }
     }
+
+    private static let zoomWidth: CGFloat = 132
+
+    private var emptyEditor: some View {
+        VStack(spacing: 14) {
+            Color.clear.frame(height: 30).contentShape(Rectangle()).windowDraggable()
+            Spacer()
+            Image(systemName: "pencil.and.scribble")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(Velvet.faint)
+            Text("No page open").velvetTitle(26)
+            Text("Pick a page, or start a new one.").foregroundStyle(Velvet.muted)
+            Button("New page") { app.newPage() }
+                .buttonStyle(PillButtonStyle(prominent: true))
+                .padding(.top, 4)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
 }
 
+/// Title, breadcrumb and page actions.
 struct PageHeader: View {
     @Bindable var app: AppModel
     @Bindable var page: PageModel
+    var undoManager: UndoManager?
+
     @FocusState private var titleFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            TextField("Untitled page", text: $page.title)
-                .textFieldStyle(.plain)
-                .font(.system(size: 24, weight: .semibold, design: .serif))
-                .focused($titleFocused)
-                .onChange(of: page.title) { app.titleEdited() }
-                .onSubmit { app.commitOpenPage() }
-            HStack(spacing: 6) {
-                if let created = createdDate {
-                    Text(created, format: .dateTime.weekday(.wide).day().month(.wide).year())
-                }
-                if !app.status.isEmpty {
-                    Text("·")
-                    Text(app.status)
-                }
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(breadcrumb)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Velvet.faint)
+                    .lineLimit(1)
+                TitleField(app: app, page: page, size: 34, focused: $titleFocused)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            PageActions(app: app, page: page, undoManager: undoManager, showFocusToggle: true)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        .padding(.horizontal, 30)
+        .padding(.top, 26)
+        .padding(.bottom, 14)
+        .contentShape(Rectangle())
+        .windowDraggable()
         .onChange(of: app.focusTitle) { _, now in
             if now {
                 titleFocused = true
@@ -101,280 +130,405 @@ struct PageHeader: View {
         }
     }
 
-    private var createdDate: Date? {
-        guard let s = page.createdStamp else { return nil }
-        return ISO8601DateFormatter.flexible(s)
+    private var breadcrumb: String {
+        let place = app.sectionName(for: page.sectionPath)
+        let status = app.status.isEmpty ? "" : " · \(app.status)"
+        return place + status
     }
 }
 
-extension ISO8601DateFormatter {
-    /// RFC 3339 with or without fractional seconds; the Windows app writes
-    /// seven fractional digits, which the stock formatter refuses.
-    static func flexible(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        if let d = f.date(from: s) { return d }
-        let trimmed = s.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
-        return f.date(from: trimmed)
-    }
-}
-
-/// Tools, pens, paper, inserts and zoom.
-struct ToolStrip: View {
+/// Focus mode's header: room for the traffic lights, the title centred.
+struct SlimHeader: View {
     @Bindable var app: AppModel
     @Bindable var page: PageModel
-    @State private var showWidth = false
+    var undoManager: UndoManager?
 
-    private let mainTools: [ToolKind] = [.pen, .highlighter, .strokeEraser, .select, .text, .pan]
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 2) {
-                ForEach(mainTools) { kind in
-                    toolButton(kind)
-                }
-            }
-            .padding(3)
-            .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.6)))
-
-            divider
-
-            HStack(spacing: 5) {
-                ForEach(Pen.tray) { pen in
-                    swatch(pen)
-                }
-            }
-
+        HStack(spacing: 14) {
+            Color.clear.frame(width: 62, height: 1)
             Button {
-                showWidth.toggle()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "lineweight")
-                    Text(widthLabel).monospacedDigit()
-                }
+                withAnimation(.spring(duration: 0.35)) { app.focusMode = false }
+            } label: { Image(systemName: "sidebar.left") }
+                .buttonStyle(RoundButtonStyle(size: 36))
+                .help("Show notebooks (⌘\\)")
+                .accessibilityLabel("Show notebooks")
+            Spacer(minLength: 8)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TitleField(app: app, page: page, size: 19, focused: $titleFocused)
+                    .fixedSize()
+                Text(app.section(at: page.sectionPath)?.name ?? "")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Velvet.faint)
             }
-            .buttonStyle(.borderless)
-            .disabled(!(app.tool.isInk || app.tool == .pointEraser))
-            .popover(isPresented: $showWidth, arrowEdge: .bottom) { widthPopover }
-            .help("Nib width")
+            Spacer(minLength: 8)
+            PageActions(app: app, page: page, undoManager: undoManager, showFocusToggle: false, size: 36)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .windowDraggable()
+    }
+}
 
-            divider
+/// The page title, editable in place, in Fraunces at its softest.
+struct TitleField: View {
+    @Bindable var app: AppModel
+    @Bindable var page: PageModel
+    var size: CGFloat
+    var focused: FocusState<Bool>.Binding
 
+    var body: some View {
+        TextField("Untitled page", text: $page.title)
+            .textFieldStyle(.plain)
+            .velvetTitle(size, weight: size > 24 ? 520 : 540)
+            .foregroundStyle(Velvet.text)
+            .focused(focused)
+            .onChange(of: page.title) { app.titleEdited() }
+            .onSubmit { app.commitOpenPage() }
+    }
+}
+
+/// Undo, redo and the page menu.
+struct PageActions: View {
+    @Bindable var app: AppModel
+    @Bindable var page: PageModel
+    var undoManager: UndoManager?
+    var showFocusToggle: Bool
+    var size: CGFloat = 40
+
+    /// Bumped whenever the undo stack changes, which SwiftUI cannot observe.
+    @State private var historyTick = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                .buttonStyle(RoundButtonStyle(size: size))
+                .disabled(historyTick < 0 || !(undoManager?.canUndo ?? false))
+                .help("Undo (⌘Z)")
+                .accessibilityLabel("Undo")
+            Button { undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                .buttonStyle(RoundButtonStyle(size: size))
+                .disabled(historyTick < 0 || !(undoManager?.canRedo ?? false))
+                .help("Redo (⇧⌘Z)")
+                .accessibilityLabel("Redo")
+            if showFocusToggle {
+                Button {
+                    withAnimation(.spring(duration: 0.35)) { app.focusMode = true }
+                } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    .buttonStyle(RoundButtonStyle(size: size))
+                    .help("Focus on the page (⌘\\)")
+                    .accessibilityLabel("Focus mode")
+            }
             Menu {
                 Picker("Paper", selection: paperBinding) {
-                    Label("Ruled", systemImage: "line.3.horizontal").tag("ruled")
-                    Label("Grid", systemImage: "grid").tag("grid")
-                    Label("Dots", systemImage: "circle.grid.3x3").tag("dots")
-                    Label("Blank", systemImage: "square").tag("blank")
+                    Text("Ruled").tag("ruled")
+                    Text("Grid").tag("grid")
+                    Text("Dots").tag("dots")
+                    Text("Blank").tag("blank")
                 }
-                .pickerStyle(.inline)
-            } label: {
-                Label("Paper", systemImage: "doc.plaintext")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Paper")
-
-            Menu {
-                Button { app.sheet = .table } label: { Label("Table…", systemImage: "tablecells") }
-                Button { app.sheet = .latex(nil) } label: { Label("Equation…", systemImage: "function") }
-                Button { app.chooseImage() } label: { Label("Image…", systemImage: "photo") }
                 Divider()
-                Button { app.paste() } label: { Label("Paste onto Page", systemImage: "doc.on.clipboard") }
+                Button("Fit Page Width") { app.canvas?.zoomToFit() }
+                Button("Show in Finder") { app.revealInFinder(page.path) }
+                Divider()
+                Button("Move to Trash", role: .destructive) {
+                    guard let info = app.pages.first(where: { $0.path == page.path }) else { return }
+                    app.confirm = ConfirmInfo(
+                        title: "Move “\(info.title)” to the Trash?",
+                        message: "You can still recover it from the Trash.",
+                        action: "Move to Trash"
+                    ) { app.trashPage(info) }
+                }
             } label: {
-                Label("Insert", systemImage: "plus.square.on.square")
+                Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(RoundButtonStyle(size: size))
+            .menuIndicator(.hidden)
             .fixedSize()
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 2) {
-                Button { app.canvas?.zoom(by: 1 / 1.25) } label: { Image(systemName: "minus.magnifyingglass") }
-                    .help("Zoom out (⌘−)")
-                Button { app.canvas?.zoomToActualSize() } label: {
-                    Text("\(Int((app.zoom * 100).rounded()))%").monospacedDigit().frame(minWidth: 42)
-                }
-                .help("Actual size (⌘0)")
-                Button { app.canvas?.zoom(by: 1.25) } label: { Image(systemName: "plus.magnifyingglass") }
-                    .help("Zoom in (⌘=)")
-            }
-            .buttonStyle(.borderless)
+            .help("Page options")
+            .accessibilityLabel("Page options")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private var divider: some View {
-        Divider().frame(height: 20)
-    }
-
-    private func toolButton(_ kind: ToolKind) -> some View {
-        let active = app.tool == kind || (kind == .strokeEraser && app.tool == .pointEraser)
-        let symbol = kind == .strokeEraser && app.tool == .pointEraser ? ToolKind.pointEraser.symbol : kind.symbol
-        return Button { app.select(tool: kind) } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 28, height: 24)
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .background(RoundedRectangle(cornerRadius: 6).fill(active ? Color.scribeAccent : .clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help(kind))
-    }
-
-    private func help(_ kind: ToolKind) -> String {
-        switch kind {
-        case .strokeEraser:
-            app.tool == .pointEraser
-                ? "Partial eraser: rubs out part of a stroke. Click again for whole strokes."
-                : "Eraser (E): click again for a partial eraser"
-        case .pan: "Pan: or hold Space, or drag with the middle button"
-        default: kind.shortcut.map { "\(kind.title) (\(String($0).uppercased()))" } ?? kind.title
-        }
-    }
-
-    private func swatch(_ pen: Pen) -> some View {
-        let current = pen.highlighter ? app.highlighter : app.pen
-        let active = current.name == pen.name && (app.tool == (pen.highlighter ? .highlighter : .pen))
-        // Show the colour the pen will paint, so the swatch does not promise
-        // black and deliver white on a dark page.
-        let fill = Color(nsColor: InkPaint.color(hex: pen.color, highlighter: false, dark: app.dark))
-        let d: CGFloat = pen.highlighter ? 17 : (pen.width < 2 ? 11 : 14)
-        return Button { app.choose(pen: pen) } label: {
-            ZStack {
-                if pen.highlighter {
-                    RoundedRectangle(cornerRadius: 3).fill(fill.opacity(0.85)).frame(width: d, height: d * 0.62)
-                } else {
-                    Circle().fill(fill).frame(width: d, height: d)
-                }
-            }
-            .frame(width: 22, height: 22)
-            .overlay(Circle().strokeBorder(active ? Color.scribeAccent : .clear, lineWidth: 2).frame(width: 22, height: 22))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("\(pen.name) — \(String(format: "%.1f", app.trayWidth(pen))) pt")
-    }
-
-    private var currentWidth: Double {
-        switch app.tool {
-        case .pen: app.pen.width
-        case .highlighter: app.highlighter.width
-        case .pointEraser: app.eraserWidth
-        default: app.pen.width
-        }
-    }
-
-    private var widthLabel: String { String(format: currentWidth < 10 ? "%.1f" : "%.0f", currentWidth) }
-
-    private var widthPopover: some View {
-        let range: ClosedRange<Double> = app.tool == .highlighter ? 4...40 : app.tool == .pointEraser ? 4...60 : 0.5...12
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Width").font(.headline)
-            Slider(value: Binding(get: { currentWidth }, set: { app.setWidth($0) }), in: range)
-                .frame(width: 200)
-            Text(String(format: "%.1f pt", currentWidth)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-        }
-        .padding(14)
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in historyTick += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in historyTick += 1 }
+        .onChange(of: app.status) { historyTick += 1 }
     }
 
     private var paperBinding: Binding<String> {
         Binding(
             get: { page.background.kind },
-            set: { kind in
-                let before = page.background
-                var after = before
-                after.kind = kind
-                page.perform("Change Paper", { page.background = after }, undo: { page.background = before })
-            }
+            set: { app.setPaper($0) }
         )
     }
 }
 
-/// Text formatting for the focused text box.
-struct FormatBar: View {
+// ---------------------------------------------------------------- the dock
+
+/// One soft bar of tools, floating over the bottom of the page.
+struct Dock: View {
     @Bindable var app: AppModel
 
-    private var enabled: Bool { app.textFormat.active && app.activeTextView != nil }
-
     var body: some View {
-        HStack(spacing: 10) {
-            Picker("Style", selection: Binding(
-                get: { app.textFormat.heading },
-                set: { v in HeadingPreset(rawValue: v).map { app.activeTextView?.applyHeading($0) } }
-            )) {
-                ForEach(HeadingPreset.allCases) { Text($0.label).tag($0.rawValue) }
-            }
-            .labelsHidden()
-            .frame(width: 120)
+        HStack(spacing: 4) {
+            tool(.pen, symbol: "pencil", help: "Pen (P). Click again for colours and width")
+            tool(.highlighter, symbol: "highlighter", help: "Highlighter (H). Click again for colours and width")
+            tool(.strokeEraser, symbol: app.tool == .pointEraser ? "eraser.line.dashed" : "eraser",
+                 help: app.tool == .pointEraser ? "Partial eraser. Click again for whole strokes" : "Eraser (E). Click again for a partial eraser")
+            tool(.select, symbol: "lasso", help: "Lasso (S)")
+            tool(.text, symbol: "character.cursor.ibeam", help: "Text (T). Click anywhere to type")
 
-            Picker("Font", selection: Binding(
-                get: { ScribeFonts.canonical(app.textFormat.family) },
-                set: { v in app.activeTextView?.format { $0.family = v } }
-            )) {
-                ForEach(ScribeFonts.choices) { Text($0.label).tag($0.name) }
-                if !ScribeFonts.choices.contains(where: { $0.name == ScribeFonts.canonical(app.textFormat.family) }) {
-                    Text(app.textFormat.family).tag(ScribeFonts.canonical(app.textFormat.family))
+            BarDivider()
+
+            ForEach(InkColor.inks.prefix(4)) { ink in
+                Button { app.chooseInk(ink.hex) } label: {
+                    Swatch(color: InkPaint.swatch(ink.hex), selected: app.tool == .pen && app.pen.color == ink.hex)
                 }
+                .buttonStyle(.plain)
+                .help(ink.name)
+                .accessibilityLabel("\(ink.name) ink")
             }
-            .labelsHidden()
-            .frame(width: 140)
-
-            Picker("Size", selection: Binding(
-                get: { app.textFormat.size },
-                set: { v in app.activeTextView?.format { $0.size = v } }
-            )) {
-                ForEach(ScribeFonts.sizes, id: \.self) { Text("\(Int($0))").tag($0) }
-                if !ScribeFonts.sizes.contains(app.textFormat.size) {
-                    Text(String(format: "%g", app.textFormat.size)).tag(app.textFormat.size)
-                }
+            Button { app.chooseHighlight(app.highlighter.color) } label: {
+                Swatch(color: InkPaint.swatch(app.highlighter.color), selected: app.tool == .highlighter, marker: true)
             }
-            .labelsHidden()
-            .frame(width: 64)
+            .buttonStyle(.plain)
+            .help("Highlighter")
+            .accessibilityLabel("Highlighter colour")
 
-            ControlGroup {
-                toggle("bold", on: app.textFormat.bold, help: "Bold (⌘B)") { $0.bold.toggle() }
-                toggle("italic", on: app.textFormat.italic, help: "Italic (⌘I)") { $0.italic.toggle() }
-                toggle("underline", on: app.textFormat.underline, help: "Underline (⌘U)") { $0.underline.toggle() }
-                toggle("strikethrough", on: app.textFormat.strikethrough, help: "Strikethrough (⇧⌘X)") { $0.strikethrough.toggle() }
+            BarDivider()
+
+            Button {
+                app.trayOpen = false
+                app.insertOpen.toggle()
+            } label: {
+                Image(systemName: "plus").rotationEffect(.degrees(app.insertOpen ? 45 : 0))
             }
-            .fixedSize()
-
-            ColorPicker("Colour", selection: Binding(
-                get: { Color(nsColor: NSColor(hex: app.textFormat.color)) },
-                set: { c in
-                    let hex = NSColor(c).hexString
-                    app.activeTextView?.format { $0.color = hex }
-                }
-            ), supportsOpacity: false)
-            .labelsHidden()
-            .help("Text colour")
-
-            Spacer()
-
-            if !enabled {
-                Text("Click in a text box to format it")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .buttonStyle(RoundButtonStyle(size: 44, fill: app.insertOpen ? Velvet.text : Velvet.control, foreground: app.insertOpen ? Velvet.onAccent : Velvet.text))
+            .help("Insert a table, equation or image")
+            .accessibilityLabel("Insert")
+            .animation(.spring(duration: 0.25), value: app.insertOpen)
         }
-        .disabled(!enabled)
-        .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 5)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(6)
+        .velvetFloating()
     }
 
-    private func toggle(_ symbol: String, on: Bool, help: String, _ change: @escaping (inout TextStyle) -> Void) -> some View {
-        Button { app.activeTextView?.format(change) } label: {
-            Image(systemName: symbol)
-                .foregroundStyle(on ? Color.scribeAccent : Color.primary)
+    private func tool(_ kind: ToolKind, symbol: String, help: String) -> some View {
+        let active = app.tool == kind || (kind == .strokeEraser && app.tool == .pointEraser)
+        return Button { app.select(tool: kind) } label: { Image(systemName: symbol) }
+            .buttonStyle(RoundButtonStyle(size: 44, fill: .clear, active: active))
+            .help(help)
+            .accessibilityLabel(kind.title)
+            .accessibilityAddTraits(active ? .isSelected : [])
+    }
+}
+
+/// Colours, nib width and pressure for the pen or the highlighter.
+struct PenTray: View {
+    @Bindable var app: AppModel
+
+    var body: some View {
+        let pen = app.trayPen
+        let colours = pen.highlighter ? InkColor.highlights : InkColor.inks
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(pen.highlighter ? "Highlighter" : "Fountain pen").font(.system(size: 15, weight: .heavy))
+                Spacer()
+                Text(String(format: "%.1f pt", pen.width))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Velvet.muted)
+                    .monospacedDigit()
+            }
+
+            StrokePreview(pen: pen)
+                .frame(height: 64)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: Velvet.Radius.card, style: .continuous).fill(Color(hex: 0x1A171E)))
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 6) {
+                ForEach(colours) { c in
+                    Button {
+                        if pen.highlighter { app.chooseHighlight(c.hex) } else { app.chooseInk(c.hex) }
+                    } label: {
+                        Swatch(color: InkPaint.swatch(c.hex), selected: pen.color == c.hex, diameter: 22, marker: pen.highlighter)
+                    }
+                    .buttonStyle(.plain)
+                    .help(c.name)
+                    .accessibilityLabel(c.name)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Nib width").font(.system(size: 12, weight: .bold)).foregroundStyle(Velvet.muted)
+                Slider(value: Binding(get: { app.trayPen.width }, set: { app.setWidth($0) }), in: pen.widthRange)
+                    .tint(Velvet.accent)
+                    .accessibilityLabel("Nib width")
+            }
+
+            if !pen.highlighter {
+                Toggle(isOn: Binding(get: { app.pen.pressureSensitive }, set: { app.setPressure($0) })) {
+                    Text("Pressure shapes the line").font(.system(size: 14, weight: .bold))
+                }
+                .toggleStyle(.switch)
+                .tint(Velvet.accent)
+            }
         }
-        .help(help)
+        .padding(18)
+        .frame(width: 340)
+        .velvetFloating(radius: Velvet.Radius.popover, popover: true)
+    }
+}
+
+/// A sample stroke drawn by the real ink engine, so the tray shows exactly
+/// what the pen will put down.
+struct StrokePreview: View {
+    var pen: Pen
+
+    var body: some View {
+        Canvas { ctx, size in
+            let w = Double(size.width) - 60
+            var pts: [Double] = []
+            let n = 70
+            for i in 0..<n {
+                let t = Double(i) / Double(n - 1)
+                let x = 30 + t * w
+                let y = Double(size.height) / 2 + sin(t * .pi * 3) * (pen.highlighter ? 4 : 12)
+                pts += [x, y, max(0.05, sin(.pi * t))]
+            }
+            let path = Core.outlinePath(points: pts, width: min(pen.width * (pen.highlighter ? 1 : 1.6), 34),
+                                        pressureSensitive: pen.pressureSensitive, fit: true, taper: true)
+            ctx.fill(Path(path), with: .color(Color(nsColor: InkPaint.color(hex: pen.color, highlighter: pen.highlighter, dark: true))))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Tables, equations, images, pasting, and the paper.
+struct InsertMenu: View {
+    @Bindable var app: AppModel
+    @Bindable var page: PageModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            row("Table", shortcut: "⌥⌘T", highlighted: true) {
+                Image(systemName: "tablecells")
+            } action: { app.sheet = .table }
+            row("Equation", shortcut: "⌥⌘E") {
+                Text("fx").font(Velvet.title(16).italic()).fontDesign(nil)
+            } action: { app.sheet = .latex(nil) }
+            row("Image", shortcut: "⌥⌘I") {
+                Image(systemName: "photo")
+            } action: { app.chooseImage() }
+            row("Paste onto page", shortcut: "⌥⌘V") {
+                Image(systemName: "doc.on.clipboard")
+            } action: { app.paste() }
+
+            Capsule().fill(Velvet.hairline).frame(height: 1).padding(.horizontal, 10).padding(.vertical, 6)
+            SectionLabel(text: "Paper").padding(.horizontal, 12).padding(.bottom, 4)
+            HStack(spacing: 6) {
+                ForEach(["ruled", "grid", "dots", "blank"], id: \.self) { kind in
+                    Button { app.setPaper(kind) } label: { PaperTile(kind: kind, selected: page.background.kind == kind) }
+                        .buttonStyle(.plain)
+                        .help(kind.capitalized)
+                        .accessibilityLabel("\(kind.capitalized) paper")
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 6)
+        }
+        .padding(8)
+        .frame(width: 300)
+        .velvetFloating(radius: Velvet.Radius.popover, popover: true)
+    }
+
+    private func row<Icon: View>(_ title: String, shortcut: String, highlighted: Bool = false,
+                                 @ViewBuilder icon: () -> Icon, action: @escaping () -> Void) -> some View {
+        Button {
+            app.insertOpen = false
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                icon()
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(highlighted ? Velvet.accent : Velvet.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(RoundedRectangle(cornerRadius: Velvet.Radius.chip, style: .continuous)
+                        .fill(highlighted ? Velvet.accentSoft : Color(hex: 0x2A2530)))
+                Text(title).font(.system(size: 14, weight: .bold))
+                Spacer()
+                Text(shortcut).font(.system(size: 12)).foregroundStyle(Velvet.faint)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 46)
+        }
+        .buttonStyle(RowButtonStyle(radius: 16))
+    }
+}
+
+struct PaperTile: View {
+    var kind: String
+    var selected: Bool
+
+    var body: some View {
+        Canvas { ctx, size in
+            let c = Color(hex: 0x8F8595)
+            let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+            switch kind {
+            case "ruled":
+                for dy in [-6.0, 0, 6] {
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: mid.x - 13, y: mid.y + dy)); $0.addLine(to: CGPoint(x: mid.x + 13, y: mid.y + dy)) },
+                               with: .color(c.opacity(0.8)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                }
+            case "grid":
+                for d in [-6.0, 0, 6] {
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: mid.x - 13, y: mid.y + d)); $0.addLine(to: CGPoint(x: mid.x + 13, y: mid.y + d)) },
+                               with: .color(c.opacity(0.7)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: mid.x + d * 1.4, y: mid.y - 10)); $0.addLine(to: CGPoint(x: mid.x + d * 1.4, y: mid.y + 10)) },
+                               with: .color(c.opacity(0.7)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                }
+            case "dots":
+                for dx in [-8.0, 0, 8] {
+                    for dy in [-7.0, 0, 7] {
+                        ctx.fill(Path(ellipseIn: CGRect(x: mid.x + dx - 1.4, y: mid.y + dy - 1.4, width: 2.8, height: 2.8)), with: .color(c))
+                    }
+                }
+            default:
+                break
+            }
+        }
+        .frame(height: 52)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: Velvet.Radius.row, style: .continuous).fill(Velvet.page))
+        .overlay(RoundedRectangle(cornerRadius: Velvet.Radius.row, style: .continuous)
+            .strokeBorder(selected ? Velvet.accent : Color.white.opacity(0.05), lineWidth: selected ? 2 : 1))
+        .contentShape(RoundedRectangle(cornerRadius: Velvet.Radius.row, style: .continuous))
+    }
+}
+
+/// − 100% +
+struct ZoomPill: View {
+    @Bindable var app: AppModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button { app.canvas?.zoom(by: 1 / 1.25) } label: { Image(systemName: "minus") }
+                .buttonStyle(RoundButtonStyle(size: 32, fill: .clear))
+                .help("Zoom out (⌘−)")
+                .accessibilityLabel("Zoom out")
+            Button { app.canvas?.zoomToFit() } label: {
+                Text("\(Int((app.zoom * 100).rounded()))%")
+                    .font(.system(size: 13, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Velvet.secondary)
+                    .frame(minWidth: 46)
+            }
+            .buttonStyle(.plain)
+            .help("Fit and centre the page (⌘9)")
+            Button { app.canvas?.zoom(by: 1.25) } label: { Image(systemName: "plus") }
+                .buttonStyle(RoundButtonStyle(size: 32, fill: .clear))
+                .help("Zoom in (⌘=)")
+                .accessibilityLabel("Zoom in")
+        }
+        .padding(4)
+        .velvetFloating()
     }
 }

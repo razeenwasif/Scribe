@@ -19,6 +19,12 @@ pub struct Settings {
     /// Widths the user has dialled in for each pen in the tray, by pen name.
     #[serde(default, rename = "penWidths")]
     pub pen_widths: std::collections::BTreeMap<String, f64>,
+    /// The notebooks sidebar is folded down to its icon rail.
+    #[serde(default, rename = "sidebarCollapsed")]
+    pub sidebar_collapsed: bool,
+    /// The page list is hidden.
+    #[serde(default, rename = "pageListCollapsed")]
+    pub page_list_collapsed: bool,
 }
 
 fn default_true() -> bool {
@@ -27,7 +33,14 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { workspace_root: None, last_page_file: None, dark_mode: true, pen_widths: Default::default() }
+        Self {
+            workspace_root: None,
+            last_page_file: None,
+            dark_mode: true,
+            pen_widths: Default::default(),
+            sidebar_collapsed: false,
+            page_list_collapsed: false,
+        }
     }
 }
 

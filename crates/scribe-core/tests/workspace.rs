@@ -218,6 +218,23 @@ fn search_finds_titles_text_and_table_cells() {
 }
 
 #[test]
+fn page_listings_carry_a_text_snippet() {
+    let (_d, ws) = temp_ws();
+    let nb = ws.create_notebook("NB").unwrap();
+    let sec = ws.create_section(&nb, "Sec").unwrap();
+    let p = ws.create_page(&sec, "P").unwrap();
+    let mut doc = ws.read_page(&p).unwrap();
+    doc.text_boxes.push(TextBox { text: "Agenda\n\n  ship   the beta".into(), ..TextBox::default() });
+    doc.text_boxes.push(TextBox { text: "x ".repeat(200), ..TextBox::default() });
+    ws.write_page(&p, &mut doc).unwrap();
+
+    let snippet = &ws.list_pages(&sec)[0].snippet;
+    assert!(snippet.starts_with("Agenda ship the beta x x"));
+    assert!(snippet.ends_with('…'));
+    assert!(snippet.chars().count() <= 141);
+}
+
+#[test]
 fn starter_is_created_once() {
     let (_d, ws) = temp_ws();
     assert!(ws.ensure_starter().unwrap().is_some());
@@ -226,6 +243,7 @@ fn starter_is_created_once() {
     assert_eq!(tree.len(), 1);
     assert_eq!(tree[0].name, "My Notebook");
     assert_eq!(tree[0].sections[0].name, "Quick Notes");
+    assert_eq!(tree[0].sections[0].page_count, 1);
 }
 
 #[test]

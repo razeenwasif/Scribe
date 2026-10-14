@@ -50,6 +50,8 @@ pub struct SectionInfo {
     pub path: String,
     #[serde(rename = "notebookPath")]
     pub notebook_path: String,
+    #[serde(rename = "pageCount")]
+    pub page_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -60,6 +62,8 @@ pub struct PageInfo {
     pub section_path: String,
     /// Seconds since the Unix epoch, or 0 when the stamp is unreadable.
     pub modified: f64,
+    /// The start of the page's typed text, for previews.
+    pub snippet: String,
 }
 
 /// Just enough of a page to list it, without building its ink in memory.
@@ -69,6 +73,22 @@ struct PageHeader {
     title: Option<String>,
     #[serde(default)]
     modified: Option<String>,
+    #[serde(default, rename = "textBoxes")]
+    text_boxes: Vec<SearchText>,
+}
+
+/// Length of the preview shown under a page's title.
+const SNIPPET_CHARS: usize = 140;
+
+/// The page's typed text as one line, cut at a word boundary.
+fn snippet_of<'a>(texts: impl Iterator<Item = &'a str>) -> String {
+    let joined = texts.flat_map(str::split_whitespace).collect::<Vec<_>>().join(" ");
+    if joined.chars().count() <= SNIPPET_CHARS {
+        return joined;
+    }
+    let cut: String = joined.chars().take(SNIPPET_CHARS).collect();
+    let cut = cut.rsplit_once(' ').map(|(head, _)| head).unwrap_or(&cut);
+    format!("{}…", cut.trim_end_matches([',', '.', ';', ':']))
 }
 
 /// Just enough of a page to search it.
@@ -221,15 +241,16 @@ impl Workspace {
             .into_iter()
             .map(|f| {
                 let header: Option<PageHeader> = read_json(&f);
-                let (title, modified) = match header {
-                    Some(h) => (h.title, h.modified),
-                    None => (None, None),
+                let (title, modified, snippet) = match header {
+                    Some(h) => (h.title, h.modified, snippet_of(h.text_boxes.iter().map(|t| t.text.as_str()))),
+                    None => (None, None, String::new()),
                 };
                 PageInfo {
                     title: title.unwrap_or_else(|| file_stem(&f)),
                     modified: parse_stamp(modified.as_deref()),
                     path: path_str(&f),
                     section_path: path_str(section_dir),
+                    snippet,
                 }
             })
             .collect()
@@ -386,6 +407,7 @@ impl Workspace {
                             id: sec.id,
                             name: sec.name,
                             color: sec.color,
+                            page_count: self.list_page_files(&s).len(),
                             path: path_str(&s),
                             notebook_path: path_str(&nb_dir),
                         }
@@ -425,6 +447,7 @@ impl Workspace {
                             path: path_str(&file),
                             section_path: path_str(&sec),
                             modified: parse_stamp(view.modified.as_deref()),
+                            snippet: snippet_of(view.text_boxes.iter().map(|t| t.text.as_str())),
                         });
                     }
                 }

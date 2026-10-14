@@ -120,6 +120,7 @@ struct SectionInfo: Codable, Identifiable, Hashable {
     var color: String
     var path: String
     var notebookPath: String
+    var pageCount: Int
 }
 
 struct PageInfo: Codable, Identifiable, Hashable {
@@ -128,6 +129,8 @@ struct PageInfo: Codable, Identifiable, Hashable {
     var sectionPath: String
     /// Unix seconds; 0 when unknown.
     var modified: Double
+    /// The start of the page's typed text.
+    var snippet: String
 
     var id: String { path }
 
@@ -139,6 +142,8 @@ struct Settings: Codable, Equatable {
     var lastPageFile: String?
     var darkMode: Bool = true
     var penWidths: [String: Double] = [:]
+    var sidebarCollapsed: Bool = false
+    var pageListCollapsed: Bool = false
 }
 
 struct ParsedTable: Codable {

@@ -25,12 +25,34 @@ final class AppModel {
     @ObservationIgnored private var dirty = false
 
     var tool: ToolKind = .pen
-    var pen: Pen = Pen.tray[0]
-    var highlighter: Pen = Pen.tray[5]
+    var pen = Pen.defaultPen
+    var highlighter = Pen.defaultHighlighter
 
-    var dark: Bool {
+    /// Velvet dark is the only theme. Kept as a property so the canvas and
+    /// ink code stay theme-aware for the self-test.
+    var dark: Bool { true }
+
+    /// Sidebar and page list hidden: just the page and the dock.
+    var focusMode = false
+    /// The pen tray (colours, width, pressure) above the dock.
+    var trayOpen = false
+    /// The Insert menu above the dock.
+    var insertOpen = false
+    /// Notebooks and pages in a popover, when the window is narrow.
+    var showLibrary = false
+
+    /// The notebooks sidebar folded down to its icon rail.
+    var sidebarCollapsed = false {
         didSet {
-            settings.darkMode = dark
+            settings.sidebarCollapsed = sidebarCollapsed
+            saveSettings()
+        }
+    }
+
+    /// The page list tucked away.
+    var pageListCollapsed = false {
+        didSet {
+            settings.pageListCollapsed = pageListCollapsed
             saveSettings()
         }
     }
@@ -56,7 +78,8 @@ final class AppModel {
     init() {
         let loaded = (try? Core.call("load_settings", as: Settings.self)) ?? Settings()
         settings = loaded
-        dark = loaded.darkMode
+        sidebarCollapsed = loaded.sidebarCollapsed
+        pageListCollapsed = loaded.pageListCollapsed
         let fallback = (try? Core.call("default_root", as: String.self)) ?? NSHomeDirectory() + "/Documents/Scribe Notebooks"
         root = loaded.workspaceRoot ?? fallback
         applyPenWidths()
@@ -257,6 +280,7 @@ final class AppModel {
                 selectedSectionPath = sec
             }
             searchText = ""
+            reloadTree()
             reloadPages()
             openPage(file)
             focusTitle = true
@@ -296,6 +320,7 @@ final class AppModel {
         } catch {
             show(error, title: "Could not delete the page")
         }
+        reloadTree()
         reloadPages()
         if searchResults != nil { runSearch() }
         if page == nil, let first = pages.first { openPage(first.path) }
@@ -316,6 +341,7 @@ final class AppModel {
         if wasOpen { commitOpenPage(); closePage() }
         do {
             let newPath: String = try Core.call("move_page", ["path": info.path, "section": section.path])
+            reloadTree()
             reloadPages()
             if wasOpen { openPage(newPath) }
         } catch {
@@ -433,6 +459,14 @@ final class AppModel {
     // ----------------------------------------------------------------- tools
 
     func select(tool kind: ToolKind) {
+        insertOpen = false
+        if kind == tool, kind.isInk {
+            // A second press of the pen or highlighter opens its tray.
+            trayOpen.toggle()
+            return
+        }
+        trayOpen = false
+
         // A second press of the eraser switches to rubbing out part of a
         // stroke, the distinction OneNote buries in a submenu.
         if kind == .strokeEraser, tool == .strokeEraser {
@@ -446,46 +480,56 @@ final class AppModel {
         if tool != .text { canvas?.window?.makeFirstResponder(canvas?.inkView) }
     }
 
-    func choose(pen chosen: Pen) {
-        var p = chosen
-        p.width = trayWidth(chosen)
-        if p.highlighter {
-            highlighter = p
-            tool = .highlighter
-        } else {
-            pen = p
-            tool = .pen
-        }
+    /// Picks an ink colour and switches to the pen.
+    func chooseInk(_ hex: String) {
+        pen.color = hex
+        if tool != .pen { select(tool: .pen) }
     }
 
-    var activePen: Pen? {
-        switch tool {
-        case .pen: pen
-        case .highlighter: highlighter
-        default: nil
-        }
+    func chooseHighlight(_ hex: String) {
+        highlighter.color = hex
+        if tool != .highlighter { select(tool: .highlighter) }
     }
+
+    /// The pen the tray is editing: the highlighter while it is active.
+    var trayPen: Pen { tool == .highlighter ? highlighter : pen }
 
     var eraserWidth: Double = 18
 
     func setWidth(_ w: Double) {
         switch tool {
-        case .pen: pen.width = w
-        case .highlighter: highlighter.width = w
-        case .pointEraser: eraserWidth = w
-        default: return
+        case .highlighter:
+            highlighter.width = w
+            settings.penWidths["highlighter"] = w
+        case .pointEraser:
+            eraserWidth = w
+            return
+        default:
+            pen.width = w
+            settings.penWidths["pen"] = w
         }
-        if let p = activePen {
-            settings.penWidths[p.name] = w
-            saveSettings()
-        }
+        saveSettings()
     }
 
-    func trayWidth(_ p: Pen) -> Double { settings.penWidths[p.name] ?? p.width }
+    func setPressure(_ on: Bool) {
+        pen.pressureSensitive = on
+    }
 
     private func applyPenWidths() {
-        pen.width = trayWidth(pen)
-        highlighter.width = trayWidth(highlighter)
+        if let w = settings.penWidths["pen"] { pen.width = w }
+        if let w = settings.penWidths["highlighter"] { highlighter.width = w }
+    }
+
+    func setPaper(_ kind: String) {
+        guard let page, page.background.kind != kind else { return }
+        let before = page.background
+        var after = before
+        after.kind = kind
+        page.perform("Change Paper", { page.background = after }, undo: { page.background = before })
+    }
+
+    func recolorSelection(_ hex: String) {
+        page?.recolorSelection(hex)
     }
 
     // ------------------------------------------------------------- settings

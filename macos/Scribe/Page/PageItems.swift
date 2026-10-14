@@ -83,16 +83,31 @@ protocol PageObject: AnyObject {
     var origin: CGPoint { get set }
     /// Rendered size, reported back by the view that draws the object.
     var size: CGSize { get }
+    /// The area where clicks belong to the object rather than the page:
+    /// its frame plus the grip and any pill floating beside it.
+    var hitFrame: CGRect { get }
 }
 
 extension PageObject {
     var frame: CGRect { CGRect(origin: origin, size: size) }
+
+    /// Room for the move grip, which sits just outside the top-left corner.
+    var chromeFrame: CGRect {
+        let f = frame
+        return CGRect(x: f.minX - 28, y: f.minY - 12, width: f.width + 36, height: f.height + 18)
+    }
 }
 
 @Observable
 final class TextBoxItem: PageObject {
     var dto: TextBoxDTO
     var measuredHeight: CGFloat = 24
+    /// The format pill floats above the box while it is being edited.
+    @ObservationIgnored var showsFormatPill = false
+
+    static let pillHeight: CGFloat = 46
+    static let pillGap: CGFloat = 12
+    static let pillWidth: CGFloat = 470
 
     init(_ dto: TextBoxDTO) { self.dto = dto }
 
@@ -102,6 +117,13 @@ final class TextBoxItem: PageObject {
         set { dto.x = newValue.x; dto.y = newValue.y }
     }
     var size: CGSize { CGSize(width: dto.width, height: dto.height ?? measuredHeight) }
+
+    var hitFrame: CGRect {
+        guard showsFormatPill else { return chromeFrame }
+        let lift = Self.pillHeight + Self.pillGap
+        let f = chromeFrame
+        return CGRect(x: f.minX, y: f.minY - lift, width: max(f.width, Self.pillWidth + 28), height: f.height + lift)
+    }
 }
 
 @Observable
@@ -121,6 +143,7 @@ final class ImageItem: PageObject {
         set { dto.x = newValue.x; dto.y = newValue.y }
     }
     var size: CGSize { CGSize(width: max(dto.width, 8), height: max(dto.height, 8)) }
+    var hitFrame: CGRect { chromeFrame }
 }
 
 @Observable
@@ -136,6 +159,7 @@ final class LatexItem: PageObject {
         set { dto.x = newValue.x; dto.y = newValue.y }
     }
     var size: CGSize { measured }
+    var hitFrame: CGRect { chromeFrame }
 }
 
 @Observable
@@ -158,6 +182,7 @@ final class TableItem: PageObject {
         set { dto.x = newValue.x; dto.y = newValue.y }
     }
     var size: CGSize { measured }
+    var hitFrame: CGRect { chromeFrame }
 
     var columnCount: Int { dto.rows.first?.count ?? 0 }
 

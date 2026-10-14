@@ -6,7 +6,7 @@ final class CoreBridgeTests: XCTestCase {
     func testColoursCrossTheBoundary() {
         let black = Core.parseColor("#1A1A1A")
         XCTAssertEqual(black, 0x1A1A_1AFF)
-        XCTAssertEqual(Core.adapt(black, dark: true), 0xE9EC_F3FF)
+        XCTAssertEqual(Core.adapt(black, dark: true), 0xEFE6_D8FF)
         XCTAssertEqual(Core.adapt(black, dark: false), black)
         XCTAssertEqual(Core.parseColor("nonsense", fallback: 7), 7)
     }
@@ -100,7 +100,7 @@ final class RichTextTests: XCTestCase {
         let box = TextBoxDTO(text: "ink")
         let dark = RichText.build(box, dark: true)
         let colour = dark.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
-        XCTAssertEqual(colour?.hexString, "#E9ECF3")
+        XCTAssertEqual(colour?.hexString, "#EFE6D8")
         XCTAssertEqual(dark.attribute(.scribeColor, at: 0, effectiveRange: nil) as? String, "#1A1A1A")
     }
 

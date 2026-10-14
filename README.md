@@ -41,6 +41,34 @@ To run both test suites (Rust and Swift) as part of the build:
 For day-to-day work you can also open `Package.swift` in Xcode once the Rust
 core has been built (`cargo build --release -p scribe-core`).
 
+## The window
+
+Velvet dark: three soft panels on a near-black ground, with no hard edges
+anywhere. Every corner is rounded, every control is a pill or a circle, and
+depth comes from layered surfaces and a faint light along their top edges
+rather than outlines. Page titles are set in Fraunces at its softest; the rest
+of the interface uses SF Pro Rounded.
+
+- **Notebooks** on the left, with search at the top. Collapse the panel to an
+  icon rail with the button beside the window controls (⌃⌘S).
+- **Pages** in the middle, as cards with each page's opening text. Hide the
+  panel with its « button (⌃⌘P); drag cards to reorder.
+- **The page** on the right, centred in its pane. When the open panels leave
+  less room than the page needs, it zooms out just enough to fit, centred with
+  even margins. Zooming by hand turns that off until you click the zoom
+  percentage or choose Fit Page Width (⌘9).
+- **Focus mode** (⌘\\) hides both panels and leaves the page and the tools.
+- Narrow windows fold the panels into the rail automatically, with notebooks
+  and pages in a popover.
+
+Tools live in one floating **dock** at the bottom of the page: pen,
+highlighter, eraser, lasso, text, four ink colours and the highlighter, and an
+Insert button for tables, equations, images, pasting and paper. Click the
+active pen or highlighter again for its **tray**: colours, nib width, pressure,
+and a preview stroke drawn by the real ink engine. While you type, a
+**format pill** floats above the text box; while you have a lasso selection, a
+pill above it offers Copy, Duplicate, Recolour and Delete.
+
 ## The drawing surface
 
 - **Pressure-varying strokes.** Ink is rendered as a true outline whose width
@@ -73,8 +101,10 @@ core has been built (`cargo build --release -p scribe-core`).
 | ⌘B ⌘I ⌘U ⇧⌘X | Bold, italic, underline, strikethrough |
 | ⌥⌘T ⌥⌘E ⌥⌘I | Insert table, equation, image |
 | ⌥⌘V | Paste onto the page: images, tables (from Numbers, Excel, web pages, Markdown or CSV) or text |
-| ⌘= ⌘− ⌘0 ⌘9 | Zoom in, zoom out, actual size, fit width |
-| ⇧⌘D | Switch between dark and light page |
+| ⌘= ⌘− ⌘0 ⌘9 | Zoom in, zoom out, actual size, fit and centre the page |
+| ⌃⌘S / ⌃⌘P | Collapse or expand the notebooks sidebar / hide or show pages |
+| ⌘\\ | Focus mode: just the page and the dock |
+| Esc | Finish typing and hand the keyboard back to the tools |
 
 ## On the page
 
@@ -117,11 +147,12 @@ The format is the same one the earlier Windows version of Scribe used, so
 notebooks move between the two. Notebooks imported from OneNote on Windows
 open here with their handwriting intact.
 
-## Themes
+## Ink colour
 
-Dark by default; the sun/moon button or ⇧⌘D switches. Ink colour is adapted
-for display only: black handwriting shows as near-white on a dark page and stays
-black in the file.
+Ink colour is adapted for display only: black handwriting shows as warm cream
+on the dark page and stays black in the file, so pages written here read
+correctly anywhere else, and coloured inks keep their hue, lifted to stay
+legible.
 
 ## Checking the ink engine
 
@@ -157,8 +188,10 @@ renders every size macOS needs and packs them into `AppIcon.icns`.
 | `crates/scribe-icon/` | The icon renderer |
 | `macos/Scribe/App/` | App entry, window state, menus, pasting and inserting |
 | `macos/Scribe/Canvas/` | The scroll view, page surface and ink view (pen input) |
-| `macos/Scribe/Objects/` | Text boxes, rich text, images, equations, tables |
-| `macos/Scribe/Views/` | Sidebar, page list, editor chrome, sheets |
+| `macos/Scribe/Objects/` | Text boxes, rich text, images, equations, tables, floating pills |
+| `macos/Scribe/Views/` | Sidebar, page list, rail, dock, pen tray, sheets, control styles |
+| `macos/Scribe/Core/Theme.swift` | The velvet palette, radii, surfaces and title font |
+| `macos/Scribe/Resources/Fonts/` | Fraunces (SIL Open Font License) |
 | `macos/Tests/` | Swift tests |
 
 ## Known gaps

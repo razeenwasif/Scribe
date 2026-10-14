@@ -16,11 +16,32 @@ struct ObjectsLayer: View {
             ForEach(page.tables, id: \.objectID) { TableObjectView(app: app, page: page, item: $0) }
             ForEach(page.latexBlocks, id: \.objectID) { LatexObjectView(app: app, page: page, item: $0) }
             ForEach(page.textBoxes, id: \.objectID) { TextBoxView(app: app, page: page, item: $0) }
+            // Pills live here, at page level, rather than in an overlay of the
+            // object they serve: outside its bounds they would not get clicks.
+            if let box = editingTextBox {
+                FormatPill(app: app)
+                    .fixedSize()
+                    .offset(x: box.dto.x - 12, y: box.dto.y - (TextBoxItem.pillHeight + TextBoxItem.pillGap) - 9)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
+            }
+            if app.tool == .select, let frame = page.selectionPillFrame {
+                SelectionPill(app: app, page: page)
+                    .offset(x: frame.minX, y: frame.minY)
+                    .transition(.opacity)
+            }
         }
         .frame(width: page.pageSize.width, height: page.pageSize.height, alignment: .topLeading)
         .coordinateSpace(name: ObjectChrome<EmptyView>.space)
-        .environment(\.colorScheme, app.dark ? .dark : .light)
-        .tint(.scribeAccent)
+        .environment(\.colorScheme, .dark)
+        .fontDesign(.rounded)
+        .foregroundStyle(Velvet.text)
+        .tint(Velvet.accent)
+        .animation(.easeOut(duration: 0.15), value: editingTextBox?.dto.id)
+    }
+
+    private var editingTextBox: TextBoxItem? {
+        guard app.tool == .text, app.textFormat.active, let id = app.textFormat.itemID else { return nil }
+        return page.textBoxes.first { $0.dto.id == id }
     }
 }
 
@@ -44,9 +65,9 @@ struct ObjectChrome<Content: View>: View {
         content()
             .overlay {
                 if selected {
-                    Rectangle()
-                        .strokeBorder(Color.scribeAccent.opacity(0.9), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                        .padding(-4)
+                    RoundedRectangle(cornerRadius: Velvet.Radius.row, style: .continuous)
+                        .strokeBorder(Velvet.accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [5, 4]))
+                        .padding(-8)
                         .allowsHitTesting(false)
                 }
             }
@@ -66,11 +87,11 @@ struct ObjectChrome<Content: View>: View {
 
     private var grip: some View {
         Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 18, height: 18)
-            .background(Circle().fill(Color.scribeAccent))
-            .offset(x: -20, y: -6)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Velvet.onAccent)
+            .frame(width: 20, height: 20)
+            .background(Circle().fill(Velvet.accent).shadow(color: .black.opacity(0.5), radius: 6, y: 3))
+            .offset(x: -26, y: -4)
             .help("Drag to move")
             .gesture(
                 DragGesture(coordinateSpace: .named(Self.space))
@@ -97,14 +118,31 @@ struct TextBoxView: View {
 
     @State private var widthStart: Double?
 
+    /// Its text view has the caret.
+    private var editing: Bool {
+        app.tool == .text && app.textFormat.active && app.textFormat.itemID == item.dto.id
+    }
+
     var body: some View {
         ObjectChrome(app: app, page: page, object: item) {
             RichTextEditor(app: app, page: page, item: item, dark: app.dark, width: item.dto.width)
                 .frame(width: item.dto.width, height: item.dto.height ?? item.measuredHeight)
+                .background {
+                    // A soft well while editing, never a hard box.
+                    RoundedRectangle(cornerRadius: Velvet.Radius.card, style: .continuous)
+                        .fill(Color.white.opacity(editing ? 0.025 : 0))
+                        .overlay(RoundedRectangle(cornerRadius: Velvet.Radius.card, style: .continuous)
+                            .strokeBorder(editing ? Velvet.accentRing : .clear, lineWidth: 1))
+                        .padding(.horizontal, -12)
+                        .padding(.vertical, -9)
+                        .allowsHitTesting(false)
+                }
                 .overlay(alignment: .trailing) {
                     if app.tool == .text { widthHandle }
                 }
+                .animation(.easeOut(duration: 0.15), value: editing)
         }
+        .onChange(of: editing, initial: true) { _, now in item.showsFormatPill = now }
     }
 
     /// Drag the right edge to rewrap.
@@ -163,6 +201,7 @@ struct ImageObjectView: View {
                 }
             }
             .frame(width: item.size.width, height: item.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: Velvet.Radius.row, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
                 if app.tool == .text { resizeHandle }
             }
@@ -185,10 +224,11 @@ struct ImageObjectView: View {
 
     /// Bottom-right corner; keeps the aspect ratio unless Shift is held.
     private var resizeHandle: some View {
-        RoundedRectangle(cornerRadius: 2)
-            .fill(Color.scribeAccent)
-            .frame(width: 10, height: 10)
-            .offset(x: 5, y: 5)
+        Circle()
+            .fill(Velvet.accent)
+            .frame(width: 14, height: 14)
+            .overlay(Circle().strokeBorder(Velvet.page, lineWidth: 3))
+            .offset(x: 4, y: 4)
             .gesture(
                 DragGesture(coordinateSpace: .named(ObjectChrome<EmptyView>.space))
                     .onChanged { g in
@@ -302,7 +342,7 @@ struct TableObjectView: View {
         .onChange(of: item.dto.rows) { page.contentChanged() }
     }
 
-    private var lineColor: Color { Color(nsColor: Palette.of(dark: app.dark).pageBorder).opacity(1.6) }
+    private var lineColor: Color { Velvet.hairline }
 
     private var grid: some View {
         Grid(horizontalSpacing: 0, verticalSpacing: 0) {
@@ -314,29 +354,34 @@ struct TableObjectView: View {
                 }
             }
         }
-        .overlay(Rectangle().strokeBorder(lineColor, lineWidth: 1))
         // Cells stretch to their row's height; without this the whole table
         // would stretch to the page, grow the page, and stretch again.
         .fixedSize()
+        .background(Color(hex: 0x211D26))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.05), lineWidth: 1))
     }
 
     private func cell(_ r: Int, _ c: Int) -> some View {
         let header = r == 0 && item.dto.hasHeader
         return TextField("", text: binding(r, c), axis: .vertical)
             .textFieldStyle(.plain)
-            .font(.system(size: 14, weight: header ? .semibold : .regular))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
+            .font(.system(size: 14, weight: header ? .heavy : .regular))
+            .foregroundStyle(header ? Color(hex: 0xF6E9E4) : (c == 0 ? Color(hex: 0xEAE2EC) : Color(hex: 0xC9C0CD)))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
             .frame(width: item.width(ofColumn: c), alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .topLeading)
-            .background(header ? Color(nsColor: Palette.of(dark: app.dark).accentSoft) : .clear)
+            .background(header ? Velvet.accentSoft : .clear)
             .overlay(alignment: .trailing) {
-                Rectangle().fill(lineColor).frame(width: 1)
+                Color.clear.frame(width: 1)
                     .overlay {
                         if app.tool == .text && r == 0 { columnHandle(c) }
                     }
             }
-            .overlay(alignment: .bottom) { Rectangle().fill(lineColor).frame(height: 1) }
+            .overlay(alignment: .bottom) {
+                if r < item.dto.rows.count - 1 { Rectangle().fill(lineColor).frame(height: 1) }
+            }
             .contextMenu { cellMenu(r, c) }
     }
 

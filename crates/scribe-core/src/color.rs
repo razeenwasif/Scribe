@@ -68,9 +68,10 @@ pub fn adapt(c: Rgba, dark: bool) -> Rgba {
     let (h, s, l) = to_hsl(c);
 
     // Near-neutral dark ink is the common case: plain black handwriting. Send
-    // it to a soft off-white rather than pure white, which glares.
+    // it to a warm cream rather than pure white, which glares on the velvet
+    // dark page.
     if s < 0.18 {
-        return Rgba { r: 0xE9, g: 0xEC, b: 0xF3, a: c.a };
+        return Rgba { r: 0xEF, g: 0xE6, b: 0xD8, a: c.a };
     }
 
     // Coloured ink keeps its hue so red stays red, lifted to a lightness that
@@ -159,8 +160,8 @@ mod tests {
     }
 
     #[test]
-    fn black_ink_becomes_off_white_on_dark() {
-        assert_eq!(adapt(Rgba::rgb(0x1A, 0x1A, 0x1A), true), Rgba::rgb(0xE9, 0xEC, 0xF3));
+    fn black_ink_becomes_warm_cream_on_dark() {
+        assert_eq!(adapt(Rgba::rgb(0x1A, 0x1A, 0x1A), true), Rgba::rgb(0xEF, 0xE6, 0xD8));
     }
 
     #[test]

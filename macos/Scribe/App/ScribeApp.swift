@@ -7,6 +7,8 @@ struct ScribeApp: App {
     @State private var app = AppModel()
 
     init() {
+        Velvet.registerFonts()
+
         // Headless entry point for checking the ink engine without a tablet:
         //   Scribe --render-selftest out.png
         let args = CommandLine.arguments
@@ -34,8 +36,8 @@ struct ScribeApp: App {
                     app.start()
                 }
         }
-        .defaultSize(width: 1380, height: 900)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .defaultSize(width: 1440, height: 900)
+        .windowStyle(.hiddenTitleBar)
         .commands { ScribeCommands(app: app) }
     }
 }
@@ -77,19 +79,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Three velvet panels on a dark ground: notebooks, pages, and the page.
+/// Narrow windows fold the first two into an icon rail; focus mode hides
+/// them altogether.
 struct ContentView: View {
     @Bindable var app: AppModel
 
+    static let railBelow: CGFloat = 1120
+
     var body: some View {
-        NavigationSplitView {
-            Sidebar(app: app)
-        } content: {
-            PageList(app: app)
-        } detail: {
-            EditorView(app: app)
+        GeometryReader { geo in
+            let narrow = geo.size.width < Self.railBelow
+            HStack(spacing: 10) {
+                if !app.focusMode {
+                    if narrow || app.sidebarCollapsed {
+                        Rail(app: app, narrow: narrow)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    } else {
+                        Sidebar(app: app)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                    if !narrow && !app.pageListCollapsed {
+                        PageList(app: app)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
+                EditorView(app: app)
+            }
+            .padding(10)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .background(Velvet.ground)
+            .animation(.spring(duration: 0.35, bounce: 0.1), value: app.focusMode)
+            .animation(.spring(duration: 0.35, bounce: 0.1), value: app.sidebarCollapsed)
+            .animation(.spring(duration: 0.35, bounce: 0.1), value: app.pageListCollapsed)
+            .animation(.spring(duration: 0.35, bounce: 0.1), value: narrow)
         }
-        .preferredColorScheme(app.dark ? .dark : .light)
-        .tint(.scribeAccent)
+        .ignoresSafeArea()
+        .frame(minWidth: 760, minHeight: 560)
+        .fontDesign(.rounded)
+        .foregroundStyle(Velvet.text)
+        .preferredColorScheme(.dark)
+        .tint(Velvet.accent)
         .sheet(item: $app.sheet) { kind in
             switch kind {
             case .latex(let item): LatexSheet(app: app, editing: item)
@@ -145,8 +175,12 @@ struct ScribeCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
-            Button("Search All Notebooks") { app.focusSearch = true }
-                .keyboardShortcut("f")
+            Button("Search All Notebooks") {
+                app.focusMode = false
+                if let w = NSApp.keyWindow, w.frame.width < ContentView.railBelow { app.showLibrary = true }
+                app.focusSearch = true
+            }
+            .keyboardShortcut("f")
         }
 
         CommandMenu("Insert") {
@@ -201,8 +235,20 @@ struct ScribeCommands: Commands {
             Button("Fit Page Width") { app.canvas?.zoomToFit() }
                 .keyboardShortcut("9")
             Divider()
-            Button(app.dark ? "Light Page" : "Dark Page") { app.dark.toggle() }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+            Button(app.sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar") {
+                app.focusMode = false
+                app.sidebarCollapsed.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+            Button(app.pageListCollapsed ? "Show Pages" : "Hide Pages") {
+                app.focusMode = false
+                app.pageListCollapsed.toggle()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .control])
+            Button(app.focusMode ? "Show Notebooks" : "Focus on Page") {
+                withAnimation(.spring(duration: 0.35)) { app.focusMode.toggle() }
+            }
+            .keyboardShortcut("\\", modifiers: .command)
             Divider()
         }
     }

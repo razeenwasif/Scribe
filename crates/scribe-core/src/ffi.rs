@@ -426,7 +426,7 @@ mod tests {
         unsafe {
             let c = scribe_parse_color(black.as_ptr(), 0);
             assert_eq!(c, 0x1A1A1AFF);
-            assert_eq!(scribe_adapt_color(c, true), 0xE9ECF3FF);
+            assert_eq!(scribe_adapt_color(c, true), 0xEFE6D8FF);
             assert_eq!(scribe_adapt_color(c, false), c);
         }
     }
